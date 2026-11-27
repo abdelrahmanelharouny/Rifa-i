@@ -86,7 +86,7 @@ def test_dap_debugs_standalone_rbc_and_exposes_embedded_source_and_locals(tmp_pa
             "setBreakpoints",
             {
                 "source": {"name": "standalone.rif", "path": str(source_path)},
-                "breakpoints": [{"line": 1}],
+                "breakpoints": [{"line": 2}],
             },
         )
         assert breakpoint_response["body"]["breakpoints"][0]["verified"] is True
@@ -119,9 +119,28 @@ def test_dap_debugs_standalone_rbc_and_exposes_embedded_source_and_locals(tmp_pa
 
         assert _request(client_writer, client_reader, 9, "continue", {"threadId": 1})["success"]
         assert _event(client_reader, "continued")["event"] == "continued"
+        breakpoint_stop = _event(client_reader, "stopped")
+        assert breakpoint_stop["body"]["reason"] == "breakpoint"
+
+        stack = _request(client_writer, client_reader, 10, "stackTrace", {"threadId": 1})
+        frame_id = stack["body"]["stackFrames"][0]["id"]
+        scopes = _request(client_writer, client_reader, 11, "scopes", {"frameId": frame_id})
+        locals_ref = scopes["body"]["scopes"][0]["variablesReference"]
+        variables = _request(
+            client_writer,
+            client_reader,
+            12,
+            "variables",
+            {"variablesReference": locals_ref},
+        )
+        answer = next(item for item in variables["body"]["variables"] if item["name"] == "answer")
+        assert answer["value"] == "42"
+
+        assert _request(client_writer, client_reader, 13, "continue", {"threadId": 1})["success"]
+        assert _event(client_reader, "continued")["event"] == "continued"
         assert _event(client_reader, "terminated")["event"] == "terminated"
 
-        assert _request(client_writer, client_reader, 10, "disconnect")["success"]
+        assert _request(client_writer, client_reader, 14, "disconnect")["success"]
         worker.join(timeout=3)
         assert not worker.is_alive()
         assert results == [0]

@@ -1,0 +1,135 @@
+(* ============================================================================
+ * Rifa'i Programming Language — Formal EBNF Grammar (Version 1.0)
+ * ============================================================================
+ *
+ * Notation (ISO/IEC 14977-style EBNF):
+ *   ::=       definition
+ *   |         alternation
+ *   ( ... )   grouping
+ *   ?         zero or one (optional)
+ *   *         zero or more
+ *   +         one or more
+ *   "..."     terminal literal
+ *   UPPERCASE lexical token produced by the Lexer
+ *
+ * Operator Precedence (highest to lowest):
+ *   1. Primary & function calls : literals, identifiers, fn_call, "(" expr ")"
+ *   2. Unary (right-assoc)      : "-", "not"
+ *   3. Multiplicative (left)    : "*", "/", "%"
+ *   4. Additive (left)          : "+", "-"
+ *   5. Relational (left)        : "<", ">", "<=", ">="
+ *   6. Equality (left)          : "==", "!="
+ *   7. Logical AND (left)       : "and"
+ *   8. Logical OR (left)        : "or"
+ *
+ * Notes:
+ *   - Assignment is strictly a statement (`assign_stmt`), not an expression.
+ *   - `void` is only permitted as a function return type (`return_type`).
+ *   - All binary operators are left-associative; unary operators are prefix
+ *     right-associative.
+ * ============================================================================ *)
+
+
+(* --- Program Structure --------------------------------------------------- *)
+
+program        ::= declaration* EOF ;
+
+declaration    ::= fn_decl
+                 | statement ;
+
+
+(* --- Functions & Types --------------------------------------------------- *)
+
+fn_decl        ::= "fn" IDENTIFIER "(" param_list? ")" "->" return_type block ;
+
+param_list     ::= param ( "," param )* ;
+
+param          ::= IDENTIFIER ":" type_spec ;
+
+type_spec      ::= "int"
+                 | "float"
+                 | "bool"
+                 | "string" ;
+
+return_type    ::= type_spec
+                 | "void" ;
+
+
+(* --- Statements ---------------------------------------------------------- *)
+
+statement      ::= var_decl
+                 | assign_stmt
+                 | if_stmt
+                 | while_stmt
+                 | return_stmt
+                 | print_stmt
+                 | block
+                 | expr_stmt ;
+
+block          ::= "{" statement* "}" ;
+
+var_decl       ::= "let" IDENTIFIER ":" type_spec "=" expression ";" ;
+
+assign_stmt    ::= IDENTIFIER "=" expression ";" ;
+
+if_stmt        ::= "if" "(" expression ")" block ( "else" ( if_stmt | block ) )? ;
+
+while_stmt     ::= "while" "(" expression ")" block ;
+
+return_stmt    ::= "return" expression? ";" ;
+
+print_stmt     ::= "print" "(" expression ")" ";" ;
+
+expr_stmt      ::= expression ";" ;
+
+
+(* --- Expressions (encoded by precedence level) --------------------------- *)
+
+expression     ::= logic_or ;
+
+logic_or       ::= logic_and ( "or" logic_and )* ;
+
+logic_and      ::= equality ( "and" equality )* ;
+
+equality       ::= comparison ( ( "==" | "!=" ) comparison )* ;
+
+comparison     ::= term ( ( "<" | ">" | "<=" | ">=" ) term )* ;
+
+term           ::= factor ( ( "+" | "-" ) factor )* ;
+
+factor         ::= unary ( ( "*" | "/" | "%" ) unary )* ;
+
+unary          ::= ( "-" | "not" ) unary
+                 | primary ;
+
+primary        ::= INTEGER
+                 | FLOAT
+                 | STRING
+                 | "true"
+                 | "false"
+                 | fn_call
+                 | IDENTIFIER
+                 | "(" expression ")" ;
+
+fn_call        ::= IDENTIFIER "(" arg_list? ")" ;
+
+arg_list       ::= expression ( "," expression )* ;
+
+
+(* --- Lexical Terminals (implemented by rifai.frontend.lexer) ------------- *)
+
+IDENTIFIER     ::= ( ASCII_LETTER | "_" ) ( ASCII_LETTER | DIGIT | "_" )* ;
+
+INTEGER        ::= DIGIT+ ;
+
+FLOAT          ::= DIGIT+ "." DIGIT+ ;
+
+STRING         ::= '"' ( STRING_CHAR | ESCAPE_SEQ )* '"' ;
+
+ESCAPE_SEQ     ::= '\"' | '\\' | '\n' | '\t' | '\r' ;
+
+(* STRING_CHAR is any character except '"', '\', '\n', and '\r'. *)
+
+ASCII_LETTER   ::= "A".."Z" | "a".."z" ;
+
+DIGIT          ::= "0".."9" ;

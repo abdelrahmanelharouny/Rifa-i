@@ -53,6 +53,10 @@ class OptimizationStats:
     removed_noops: int
     constants_before: int
     constants_after: int
+    constant_loads_propagated: int = 0
+    branches_folded: int = 0
+    unreachable_instructions_removed: int = 0
+    common_subexpressions_eliminated: int = 0
 
     @property
     def instructions_removed(self) -> int:
@@ -164,9 +168,41 @@ class BytecodeOptimizer:
     whenever a jump enters the middle of the expression being replaced.
     """
 
-    def optimize(self, module: BytecodeModule) -> OptimizationResult:
+    def optimize(self, module: BytecodeModule, *, _advanced: bool = True) -> OptimizationResult:
         if not isinstance(module, BytecodeModule):
             raise TypeError("module must be a BytecodeModule.")
+        if _advanced:
+            # Keep the original peephole pass as a verified baseline, then run
+            # CFG-aware data-flow/DCE/CSE and one final peephole pass so newly
+            # propagated constants are folded and the constant pool is compacted.
+            baseline = self.optimize(module, _advanced=False)
+            from rifai.bytecode.dataflow import optimize_module_dataflow
+
+            dataflow = optimize_module_dataflow(baseline.module)
+            final = (
+                self.optimize(dataflow.module, _advanced=False)
+                if dataflow.module != baseline.module
+                else baseline
+            )
+            extra = dataflow.stats
+            return OptimizationResult(
+                final.module,
+                OptimizationStats(
+                    original_instruction_count=baseline.stats.original_instruction_count,
+                    optimized_instruction_count=final.stats.optimized_instruction_count,
+                    folded_expressions=baseline.stats.folded_expressions
+                    + (final.stats.folded_expressions if final is not baseline else 0),
+                    removed_noops=baseline.stats.removed_noops
+                    + (final.stats.removed_noops if final is not baseline else 0),
+                    constants_before=len(module.constants),
+                    constants_after=len(final.module.constants),
+                    constant_loads_propagated=extra.constant_loads_propagated,
+                    branches_folded=extra.branches_folded,
+                    unreachable_instructions_removed=extra.unreachable_instructions_removed,
+                    common_subexpressions_eliminated=extra.common_subexpressions_eliminated,
+                ),
+            )
+
         validation = BytecodeVerifier().verify(module)
         if not validation.is_valid:
             messages = "; ".join(item.message for item in validation.diagnostics[:3])

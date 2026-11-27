@@ -104,7 +104,7 @@ Diagnostics identify the phase that emitted them and preserve source line/column
 - run program.rbc and vm program.rbc execute an existing bytecode module.
 - disasm program.rbc validates and displays bytecode.
 
-## 9. Project Phases
+## 10. Project Phases
 
 - Phase 1: Language specification and Lexer.
 - Phase 2: AST, Parser, Symbol Table, and Semantic Analyzer.
@@ -112,3 +112,4 @@ Diagnostics identify the phase that emitted them and preserve source line/column
 - Phase 4: AST-to-bytecode code generation, function chunks, call frames, and full source execution.
 - Phase 5: Conservative optimization, runtime and bytecode hardening, reproducible benchmarks, examples, and final delivery.
 - Phase 9: Bytecode control-flow graph construction, basic-block and edge modeling, reachability analysis, and structured inspection output.
+- Phase 10: CFG-aware constant propagation, branch simplification, unreachable-block elimination, and profitable local common-subexpression elimination.

@@ -13,6 +13,7 @@ Rifa'i (.rif) is a custom statically typed programming language implemented in P
 - **Phase 7 — Debugging Toolchain (Complete):** Interactive CLI debugger and VS Code Debug Adapter Protocol integration, source breakpoints, step into/over/out, locals/globals/operand-stack inspection, call stack, and standalone .rbc debugging with embedded source and local-symbol metadata.
 - **Phase 8 — Typed Collections (Complete):** Homogeneous one-dimensional arrays (int[], float[], bool[], string[]), literals, indexing, element assignment, array parameters/returns, standard len/push/pop, runtime bounds and capacity checks, and bytecode v4.
 - **Phase 9 — Control-Flow Analysis (Complete):** Deterministic bytecode basic blocks, branch/fall-through edges, per-chunk reachability analysis, and structured CFG export through `rifai inspect`.
+- **Phase 10 — Data-Flow & Advanced Optimization (Complete):** CFG-aware constant propagation, constant-branch folding, unreachable-block elimination, profitable block-local common-subexpression elimination, and optimization statistics.
 
 ## Quick Start
 
@@ -154,3 +155,22 @@ rifai inspect examples/phase8_collections.rif -o phase9.inspect.json
 ```
 
 The JSON report includes `stages.bytecode.control_flow`, keyed by chunk name. Each graph reports block and edge counts, block offsets, successors, reachability, and reachable/unreachable instruction totals. CFG analysis is deliberately non-mutating: it does not change bytecode, debug mappings, runtime behavior, or the v4 file format. See [docs/phase9-report.md](docs/phase9-report.md).
+
+
+## Phase 10: Data-Flow and Advanced Optimization
+
+The optimizer now uses the Phase 9 CFG to propagate constant scalar values through basic blocks and merge facts conservatively at control-flow joins. A value remains known only when every reachable incoming path agrees on both its exact type and value. Known boolean conditions are lowered to an unconditional path, and unreachable blocks are removed while preserving required main/function terminators.
+
+A block-local common-subexpression pass reuses repeated pure scalar expressions through compiler-managed local slots. It only keeps a cache when a later matching expression actually reuses it, invalidates entries when source locals change, never carries them across block boundaries, and does not treat mutable arrays or function calls as pure expressions. Global constant facts are invalidated by calls because a callee may update globals.
+
+The optimizer retains the original conservative constant folding and DUP/POP cleanup, then verifies the resulting bytecode. It preserves source locations and debugger metadata, records generated temporary locals, keeps bytecode v1-v4 compatibility, and remains idempotent. Data-flow and CSE statistics are included in OptimizationStats and rifai inspect output.
+
+Try the complete example:
+
+```bash
+rifai check examples/phase10_advanced_optimization.rif
+rifai run examples/phase10_advanced_optimization.rif
+rifai inspect examples/phase10_advanced_optimization.rif -o phase10.inspect.json
+```
+
+See [docs/phase10-report.md](docs/phase10-report.md) for implementation details and safety boundaries.

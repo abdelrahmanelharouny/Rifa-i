@@ -1,0 +1,13 @@
+fn combine(a: int, b: int, c: int, d: int) -> int {
+    let first: int = (a + b) * (c + d);
+    let second: int = (a + b) * (c + d);
+    return first + second;
+}
+
+let base: int = 5;
+let result: int = base + 2;
+if (result == 7) {
+    print(combine(1, 2, 3, 4));
+} else {
+    print(999);
+}

@@ -209,7 +209,9 @@ def test_compacting_expressions_remaps_absolute_jump_targets():
         ],
         (2, 3, False, "unreachable"),
     )
-    optimized = BytecodeOptimizer().optimize(module)
+    # Exercise the original peephole compaction in isolation; Phase 10 adds
+    # a subsequent CFG-aware pass that intentionally folds this constant branch.
+    optimized = BytecodeOptimizer().optimize(module, _advanced=False)
 
     assert optimized.module.main.instructions[3] == Instruction(
         Opcode.JUMP_IF_FALSE,

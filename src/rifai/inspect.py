@@ -10,7 +10,8 @@ from pathlib import Path
 from typing import Any
 
 from rifai import __version__
-from rifai.bytecode.cfg import analyze_module_control_flow\nfrom rifai.bytecode.disassembler import disassemble
+from rifai.bytecode.cfg import analyze_module_control_flow
+from rifai.bytecode.disassembler import disassemble
 from rifai.compiler import Compiler
 from rifai.frontend.ast_nodes import ASTNode
 from rifai.frontend.lexer import Lexer
@@ -206,7 +207,11 @@ def inspect_source(
             for function in module.functions
         ],
         "disassembly": disassemble(module),
-        "optimization": _safe(compilation.optimization),\n        "control_flow": {\n            name: graph.as_dict()\n            for name, graph in analyze_module_control_flow(module).items()\n        },
+        "optimization": _safe(compilation.optimization),
+        "control_flow": {
+            name: graph.as_dict()
+            for name, graph in analyze_module_control_flow(module).items()
+        },
     }
     result["success"] = True
     return result
@@ -236,7 +241,8 @@ def main(argv: list[str] | None = None) -> int:
         source_name=str(args.file),
         optimize=not args.no_optimize,
     )
-    rendered = json.dumps(snapshot, ensure_ascii=False, indent=2) + "\n"
+    rendered = json.dumps(snapshot, ensure_ascii=False, indent=2) + "
+"
     if args.output is None:
         sys.stdout.write(rendered)
     else:

@@ -476,6 +476,7 @@ def _cse_chunk(
     functions: dict[str, BytecodeFunction],
     return_type: str | None,
     local_types: dict[int, str],
+    preexisting_cse_slots: set[int],
 ) -> tuple[CodeChunk, int, tuple[tuple[int, str], ...]]:
     graph = build_control_flow_graph(chunk)
     if not graph.blocks:
@@ -565,7 +566,19 @@ def _cse_chunk(
                 )
                 stack.append(expression_value)
 
-                if range_is_pure and result_type is not None and next_temp < MAX_LOCAL_COUNT:
+                existing_temp = None
+                if (
+                    range_is_pure
+                    and result_type is not None
+                    and index + 2 <= block.end
+                    and chunk.instructions[index + 1].opcode is Opcode.DUP
+                    and chunk.instructions[index + 2].opcode is Opcode.STORE_LOCAL
+                    and chunk.instructions[index + 2].operand in preexisting_cse_slots
+                ):
+                    existing_temp = chunk.instructions[index + 2].operand
+                if existing_temp is not None:
+                    cache[expression_key] = (existing_temp, result_type)
+                elif range_is_pure and result_type is not None and next_temp < MAX_LOCAL_COUNT:
                     temp_slot = next_temp
                     next_temp += 1
                     temp_types.append((temp_slot, result_type))
@@ -676,8 +689,12 @@ def optimize_module_dataflow(module: BytecodeModule) -> DataFlowResult:
     debug_maps = current.debug_info.as_mapping() if current.debug_info else {}
     all_temp_types: dict[str, tuple[tuple[int, str], ...]] = {}
     cse_hits = 0
+    main_cse_slots = {
+        slot for slot, (name, _) in debug_maps.get("<main>", {}).items()
+        if name.startswith("_cse_tmp_")
+    }
     main, hits, temps = _cse_chunk(
-        current.main, current.constants, functions, None, {}
+        current.main, current.constants, functions, None, {}, main_cse_slots
     )
     cse_hits += hits
     if temps:
@@ -690,9 +707,13 @@ def optimize_module_dataflow(module: BytecodeModule) -> DataFlowResult:
             slot: type_name
             for slot, (_, type_name) in debug_maps.get(function.name, {}).items()
         })
+        existing_cse_slots = {
+            slot for slot, (name, _) in debug_maps.get(function.name, {}).items()
+            if name.startswith("_cse_tmp_")
+        }
         chunk, hits, temps = _cse_chunk(
             function.chunk, current.constants, functions,
-            function.return_type, known_types,
+            function.return_type, known_types, existing_cse_slots,
         )
         cse_hits += hits
         if temps:

@@ -15,7 +15,7 @@ if (1 < 2) {
     print(0);
 }
 """
-    result = Compiler(optimize=False).compile(source)
+    result = Compiler(optimize=False, ir_optimize=True).compile(source)
 
     assert result.is_success
     assert result.module is not None
@@ -31,7 +31,7 @@ if (1 < 2) {
 
 
 def test_ir_optimizer_keeps_division_by_zero_as_a_runtime_operation():
-    result = Compiler(optimize=False).compile("print(7 / 0);")
+    result = Compiler(optimize=False, ir_optimize=True).compile("print(7 / 0);")
 
     assert result.is_success
     assert result.ir_stats is not None
@@ -53,7 +53,7 @@ let count: int = 0;
 while (count < 2) { count = count + 1; }
 print(choose(count == 2));
 """
-    result = Compiler(optimize=False).compile(source)
+    result = Compiler(optimize=False, ir_optimize=True).compile(source)
 
     assert result.is_success
     assert result.ir_stats is not None

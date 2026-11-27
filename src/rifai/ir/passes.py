@@ -9,7 +9,7 @@ import math
 from rifai.bytecode.instructions import Opcode
 from rifai.bytecode.module import is_constant
 from rifai.ir.analysis import IRAnalysis, IRAnalyzer
-from rifai.ir.model import IRBranch, IRFunction, IRJump, IRModule, IRValue, IRReturn
+from rifai.ir.model import IRBranch, IRFunction, IRJump, IRModule, IRValue, IRReturn, IROperation
 from rifai.ir.verifier import IRVerifier
 
 _MAX_FOLDED_INT_BITS = 4096
@@ -249,8 +249,22 @@ class IRConstantPropagationPass:
                                 index = len(constants)
                                 constants.append(value)
                                 indices[key] = index
-                            replacement = replace(operation, opcode=Opcode.CONSTANT,
-                                                  inputs=(), operand=index)
+                            # Preserve stack semantics: the bytecode lowerer emits
+                            # operations in order, so consume the original operands
+                            # before pushing the folded result.
+                            for value_id in reversed(operation.inputs):
+                                operations.append(
+                                    IROperation(
+                                        opcode=Opcode.POP,
+                                        outputs=(),
+                                        inputs=(value_id,),
+                                        location=operation.location,
+                                    )
+                                )
+                            replacement = replace(
+                                operation, opcode=Opcode.CONSTANT,
+                                inputs=(), operand=index
+                            )
                             folded += 1
                     operations.append(replacement)
                 blocks.append(replace(block, operations=tuple(operations)))

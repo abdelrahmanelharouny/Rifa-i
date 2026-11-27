@@ -56,6 +56,14 @@ jobs:
           rifai inspect examples/phase10_advanced_optimization.rif --output /tmp/rifai-phase10.json
           python -c "import json; p=json.load(open('/tmp/rifai-phase10.json', encoding='utf-8')); s=p['stages']['bytecode']['optimization']; assert p['success'] and s['constant_loads_propagated'] > 0 and s['branches_folded'] > 0 and s['unreachable_instructions_removed'] > 0 and s['common_subexpressions_eliminated'] > 0"
 
+      - name: Validate Phase 11 IR pipeline
+        run: |
+          rifai check examples/phase11_ir_pipeline.rif
+          rifai run examples/phase11_ir_pipeline.rif > /tmp/rifai-phase11.txt
+          python -c "from pathlib import Path; assert Path('/tmp/rifai-phase11.txt').read_text(encoding='utf-8').strip() == '10'"
+          rifai inspect examples/phase11_ir_pipeline.rif --output /tmp/rifai-phase11.json
+          python -c "import json; p=json.load(open('/tmp/rifai-phase11.json', encoding='utf-8')); s=p['stages']; assert p['success'] and s['ir']['ir_version'] == 1 and s['ir']['stats']['blocks'] > 0 and 'cfg-dominator-analysis' in s['ir_pipeline']['passes'] and s['ir_analysis']['edge_count'] > 0"
+
       - name: Verify interactive debugger smoke test
         run: |
           printf '%s\n' continue continue | rifai debug examples/phase7_debugger.rif --breakpoint 4 > /tmp/rifai-debug.txt

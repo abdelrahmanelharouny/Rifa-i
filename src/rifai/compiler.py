@@ -12,6 +12,10 @@ from rifai.errors.diagnostics import Diagnostic
 from rifai.frontend.lexer import Lexer
 from rifai.frontend.parser import Parser
 from rifai.frontend.semantic import SemanticAnalyzer
+from rifai.ir.analysis import IRAnalysis
+from rifai.ir.model import IRModule
+from rifai.ir.pipeline import IRPipeline
+from rifai.ir.passes import IRPassStats
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,6 +26,9 @@ class CompilationResult:
     diagnostics: tuple[Diagnostic, ...]
     optimization: OptimizationStats | None = None
     debug_symbols: dict[str, dict[int, tuple[str, str]]] = field(default_factory=dict)
+    ir_module: IRModule | None = None
+    ir_stats: IRPassStats | None = None
+    ir_analysis: IRAnalysis | None = None
 
     @property
     def is_success(self) -> bool:
@@ -72,8 +79,26 @@ class Compiler:
             module = optimized.module
             optimization = optimized.stats
 
+        # IR is the verified hand-off layer between source-oriented code
+        # generation/optimization and the final bytecode backend.
+        ir_result = IRPipeline().run(module)
+        module = ir_result.bytecode_module
+
         validation = BytecodeVerifier().verify(module)
         if not validation.is_valid:
-            return CompilationResult(None, validation.diagnostics, optimization)
+            return CompilationResult(
+                None, validation.diagnostics, optimization,
+                ir_module=ir_result.ir_module,
+                ir_stats=ir_result.stats,
+                ir_analysis=ir_result.analysis,
+            )
         symbols = module.debug_info.as_mapping() if module.debug_info else generation.debug_symbols
-        return CompilationResult(module, (), optimization, symbols)
+        return CompilationResult(
+            module,
+            (),
+            optimization,
+            symbols,
+            ir_result.ir_module,
+            ir_result.stats,
+            ir_result.analysis,
+        )

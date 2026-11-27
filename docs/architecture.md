@@ -18,15 +18,21 @@ Rifa'i is a statically typed language implemented in Python. Its compiler transl
       | type information + exact symbol bindings
       v
   AST-to-Bytecode Code Generator ---- Phase 4
-      | main chunk + function chunks + constant pool
+      | provisional main/function chunks
       v
-  Bytecode Optimizer ---------------- Phase 5
-      | constant folding + constant-pool compaction
+  Bytecode Optimizer ---------------- Phases 5/10
+      | constant/data-flow optimizations
       v
-  CFG Analysis --------------------- Phase 9
-      | basic blocks + reachability
+  Bytecode-to-IR Lifter ------------- Phase 11
+      | typed virtual values + block parameters
       v
-  Bytecode Verifier ---------------- Phase 3/4/5
+  IR Multi-Pass Manager ------------- Phase 11
+      | verify + canonical numbering + dominators
+      v
+  IR-to-Bytecode Lowerer ------------ Phase 11
+      | verified stack-bytecode module
+      v
+  Bytecode Verifier ---------------- Phase 3/4/5/11
       | validated control flow and stack effects
       v
   Bytecode Serializer -------------- Phase 3/5
@@ -38,7 +44,7 @@ Rifa'i is a statically typed language implemented in Python. Its compiler transl
   Program result
 ```
 
-Compiler.compile() orchestrates the frontend, code generator, optional optimizer, and final verifier. It stops at the first failing phase and returns structured diagnostics. Optimized bytecode is verified again before it is exposed as a successful compilation result.
+Compiler.compile() orchestrates the frontend, code generator, optional bytecode optimizer, IR lift/pass/lower pipeline, and final verifier. It stops at the first failing phase and returns structured diagnostics. Both IR and the lowered bytecode are verified before a successful compilation result is exposed. The current IR integration is a deliberate migration seam: the existing AST code generator remains stable while later front-end/backend work can move directly onto IR.
 
 ## 2. Package Layout
 
@@ -49,6 +55,7 @@ Compiler.compile() orchestrates the frontend, code generator, optional optimizer
 - rifai/bytecode/codegen.py: AST-to-bytecode generation using SemanticResult bindings.
 - rifai/bytecode/optimizer.py: Semantics-preserving constant folding, no-op cleanup, and constant-pool compaction.
 - rifai/bytecode/cfg.py: Deterministic basic-block construction, control-flow edges, and entry-reachability analysis.
+- rifai/ir/: Typed explicit-value IR models, bytecode lifting/lowering, IR verification, canonical value numbering, dominator analysis, and the pass manager.
 - rifai/bytecode/verifier.py: Operand validation, source-map validation, module limits, and per-chunk control-flow stack analysis.
 - rifai/bytecode/serializer.py: Deterministic versioned .rbc serialization and atomic file writes.
 - rifai/bytecode/disassembler.py: Readable listing of constants, main instructions, and functions.
@@ -94,7 +101,17 @@ Phase 9 adds a read-only control-flow graph (CFG) for the main bytecode chunk an
 
 `rifai inspect` exports the CFG under `stages.bytecode.control_flow`, including block ranges, successors, edge counts, and reachable/unreachable instruction totals. This gives compiler tooling and future optimization passes a stable control-flow foundation without coupling analysis to execution.
 
-## 8. Diagnostics, Limits, and CLI
+## 8. Intermediate Representation and Pass Manager
+
+Phase 11 introduces an independent IR package. BytecodeToIR first verifies its input, then converts each code chunk to IR basic blocks. Operand-stack entries are represented by typed virtual values; every stack merge is represented by target block parameters, which act as explicit phi-like inputs. Non-terminating operations carry explicit input/output value IDs. Jumps, conditional branches, returns, and halts are represented as block terminators with explicit edge arguments.
+
+The IR verifier checks unique definitions, use-before-definition, operation arity, function call signatures, block targets, and live edge/block-parameter compatibility. IRValueNumberingPass assigns deterministic virtual-value IDs. IRAnalyzer computes reachability, predecessors, dominator sets, immediate dominators, and natural loop back-edges. The pass manager verifies IR before and after canonicalization, then produces stable analysis/statistics.
+
+IRToBytecode lays out the blocks in their original source order, reconstitutes branch targets and terminators, preserves constants/local frames/debug metadata, and runs the bytecode verifier over the lowered module. No new bytecode opcodes or serialized-format changes are required.
+
+The transitional design is intentional: the current AST code generator remains the stable frontend backend, while the new IR boundary provides a migration point for future direct AST-to-IR lowering and IR-native optimization passes. CompilationResult exposes ir_module, ir_stats, and ir_analysis; rifai inspect exports the same information under its IR stages.
+
+## 9. Diagnostics, Limits, and CLI
 
 Diagnostics identify the phase that emitted them and preserve source line/column coordinates when available. Generated instructions carry source locations into the VM. The VM exposes configurable positive-integer limits for executed instructions, operand-stack depth, call depth, integer bit length, string length, and total captured output. The verifier also bounds local slots per code chunk and constant-string sizes. The serializer caps bytecode files at 16 MiB and writes files using a temporary file plus atomic replacement.
 
@@ -104,7 +121,7 @@ Diagnostics identify the phase that emitted them and preserve source line/column
 - run program.rbc and vm program.rbc execute an existing bytecode module.
 - disasm program.rbc validates and displays bytecode.
 
-## 10. Project Phases
+## 11. Project Phases
 
 - Phase 1: Language specification and Lexer.
 - Phase 2: AST, Parser, Symbol Table, and Semantic Analyzer.
@@ -113,3 +130,4 @@ Diagnostics identify the phase that emitted them and preserve source line/column
 - Phase 5: Conservative optimization, runtime and bytecode hardening, reproducible benchmarks, examples, and final delivery.
 - Phase 9: Bytecode control-flow graph construction, basic-block and edge modeling, reachability analysis, and structured inspection output.
 - Phase 10: CFG-aware constant propagation, branch simplification, unreachable-block elimination, and profitable local common-subexpression elimination.
+- Phase 11: Typed explicit-value IR, block parameters, verified lifting/lowering, canonical value numbering, dominator analysis, and multi-pass compiler integration.

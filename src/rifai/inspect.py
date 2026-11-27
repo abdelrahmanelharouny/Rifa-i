@@ -213,6 +213,12 @@ def inspect_source(
             for name, graph in analyze_module_control_flow(module).items()
         },
     }
+    if compilation.ir_module is not None:
+        result["stages"]["ir"] = compilation.ir_module.as_dict()
+    if compilation.ir_stats is not None:
+        result["stages"]["ir_pipeline"] = _safe(compilation.ir_stats)
+    if compilation.ir_analysis is not None:
+        result["stages"]["ir_analysis"] = compilation.ir_analysis.as_dict()
     result["success"] = True
     return result
 

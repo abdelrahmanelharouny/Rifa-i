@@ -1,0 +1,12 @@
+fn sum(values: int[]) -> int {
+    let index: int = 0;
+    let total: int = 0;
+    while (index < len(values)) {
+        total = total + values[index];
+        index = index + 1;
+    }
+    return total;
+}
+
+let numbers: int[] = [1, 2, 3, 4];
+print(sum(numbers));

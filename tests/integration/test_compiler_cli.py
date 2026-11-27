@@ -52,6 +52,8 @@ def test_compile_command_reports_optimization_stats_by_default(tmp_path, capsys)
     output = capsys.readouterr().out
     assert "Optimization:" in output
     assert "expression(s) folded" in output
+    assert "IR pipeline:" in output
+    assert "block(s)" in output
 
 
 def test_compile_command_can_disable_optimization(tmp_path, capsys):
@@ -62,6 +64,7 @@ def test_compile_command_can_disable_optimization(tmp_path, capsys):
     output = capsys.readouterr().out
     assert "Compilation succeeded" in output
     assert "Optimization:" not in output
+    assert "IR pipeline:" in output
 
 
 def test_run_command_can_disable_optimization(tmp_path, capsys):

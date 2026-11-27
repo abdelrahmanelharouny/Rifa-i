@@ -26,6 +26,28 @@ from rifai.bytecode import (
     disassemble,
 )
 from rifai.compiler import CompilationResult, Compiler
+from rifai.ir import (
+    BytecodeToIR,
+    IRAnalysis,
+    IRAnalyzer,
+    IRBlock,
+    IRBranch,
+    IRFunction,
+    IRHalt,
+    IRJump,
+    IRLocal,
+    IRModule,
+    IROperation,
+    IRPassManager,
+    IRPassResult,
+    IRPassStats,
+    IRReturn,
+    IRToBytecode,
+    IRValidationResult,
+    IRValue,
+    IRValueNumberingPass,
+    IRVerifier,
+)
 from rifai.errors.diagnostics import Diagnostic, DiagnosticPhase
 from rifai.frontend.ast_nodes import Program, format_ast
 from rifai.frontend.lexer import Lexer, LexResult
@@ -45,7 +67,7 @@ from rifai.vm import (
     VMRuntimeError,
 )
 
-__version__ = "0.11.0"
+__version__ = "0.12.0"
 
 __all__ = [
     "BasicBlock",
@@ -55,6 +77,26 @@ __all__ = [
     "optimize_module_dataflow",
     "analyze_module_control_flow",
     "build_control_flow_graph",
+    "BytecodeToIR",
+    "IRAnalysis",
+    "IRAnalyzer",
+    "IRBlock",
+    "IRBranch",
+    "IRFunction",
+    "IRHalt",
+    "IRJump",
+    "IRLocal",
+    "IRModule",
+    "IROperation",
+    "IRPassManager",
+    "IRPassResult",
+    "IRPassStats",
+    "IRReturn",
+    "IRToBytecode",
+    "IRValidationResult",
+    "IRValue",
+    "IRValueNumberingPass",
+    "IRVerifier",
     "BytecodeDebugInfo",
     "BytecodeDebugLocal",
     "COLLECTIONS_FORMAT_VERSION",

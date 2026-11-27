@@ -76,3 +76,36 @@ def test_verifier_rejects_unbounded_local_frame_size():
     result = BytecodeVerifier().verify(module)
     assert not result.is_valid
     assert any("local_count exceeds the limit" in item.message for item in result.diagnostics)
+
+
+def test_call_to_invalid_function_signature_is_rejected_without_crashing():
+    from rifai.bytecode import BytecodeFunction
+
+    function = BytecodeFunction(
+        name="broken",
+        chunk=CodeChunk(
+            "broken",
+            (Instruction(Opcode.RETURN),),
+            arity=0,
+        ),
+        parameter_types=(),
+        return_type="void",
+    )
+    object.__setattr__(function, "parameter_types", None)
+    module = BytecodeModule(
+        constants=(),
+        main=CodeChunk(
+            "<main>",
+            (
+                Instruction(Opcode.CALL, "broken"),
+                Instruction(Opcode.HALT),
+            ),
+        ),
+        functions=(function,),
+    )
+
+    result = BytecodeVerifier().verify(module)
+    assert not result.is_valid
+    messages = [item.message for item in result.diagnostics]
+    assert any("invalid parameter types" in message for message in messages)
+    assert any("Call target 'broken' does not exist" in message for message in messages)

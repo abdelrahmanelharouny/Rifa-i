@@ -104,6 +104,7 @@ class BytecodeVerifier:
             report("Version 1 bytecode cannot contain function chunks.")
 
         function_by_name: dict[str, BytecodeFunction] = {}
+        seen_function_names: set[str] = set()
         for function in module.functions:
             if not isinstance(function, BytecodeFunction):
                 report("Function table contains an invalid entry.")
@@ -111,10 +112,10 @@ class BytecodeVerifier:
             if not isinstance(function.name, str) or not function.name:
                 report("Function names must be non-empty strings.")
                 continue
-            if function.name in function_by_name:
+            if function.name in seen_function_names:
                 report(f"Duplicate function '{function.name}' in bytecode module.")
                 continue
-            function_by_name[function.name] = function
+            seen_function_names.add(function.name)
             if not isinstance(function.chunk, CodeChunk):
                 report(f"Function '{function.name}' has an invalid code chunk.")
                 continue
@@ -129,16 +130,21 @@ class BytecodeVerifier:
             )
             if not parameter_types_valid:
                 report(f"Function '{function.name}' has invalid parameter types.")
-            if (
-                not isinstance(function.return_type, str)
-                or function.return_type not in _ALLOWED_RETURN_TYPES
-            ):
+            return_type_valid = (
+                isinstance(function.return_type, str)
+                and function.return_type in _ALLOWED_RETURN_TYPES
+            )
+            if not return_type_valid:
                 report(f"Function '{function.name}' has an invalid return type.")
             if (
                 parameter_types_valid
                 and function.chunk.arity != len(function.parameter_types)
             ):
                 report(f"Function '{function.name}' arity does not match its signature.")
+            # Only well-formed signatures are valid CALL targets. This prevents
+            # malformed metadata from crashing call-stack verification below.
+            if parameter_types_valid and return_type_valid:
+                function_by_name[function.name] = function
 
         chunks: list[tuple[str, CodeChunk, str | None, bool]] = [
             ("<main>", module.main, None, True)

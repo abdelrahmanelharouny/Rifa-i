@@ -1,76 +1,112 @@
 # Rifa'i Compiler Architecture
 
-This document describes the modular architecture of the **Rifa'i Compiler** and **Rifa'i VM** across Phase 1 (Lexer) and Phase 2 (Parser, AST, Symbol Table, Semantic Analyzer), and how Phase 3 integrates cleanly.
-
----
+This document describes the modular architecture of the **Rifa'i Compiler** and **Rifa'i VM**.
 
 ## 1. Pipeline Overview
 
-```text
+~~~text
   [.rif source file]
-          │
-          ▼
-  ┌───────────────────┐
-  │  Frontend: Lexer  │  (Phase 1 — Implemented)
-  └─────────┬─────────┘
-            │  LexResult(tokens, diagnostics)
-            ▼
-  ┌───────────────────┐
-  │  Frontend: Parser │  (Phase 2 — Implemented: Recursive Descent -> AST)
-  └─────────┬─────────┘
-            │  ParseResult(program, diagnostics)
-            ▼
-  ┌───────────────────┐
-  │ Semantic Analyzer │  (Phase 2 — Implemented: Scopes, Types, Returns)
-  └─────────┬─────────┘
-            │  SemanticResult(diagnostics, expression_types, bindings)
-            ▼
-  ┌───────────────────┐
-  │ Bytecode Emitter  │  (Phase 3 — Planned: Stack-based .rbc generation)
-  └─────────┬─────────┘
-            │  BytecodeModule (.rbc)
-            ▼
-  ┌───────────────────┐
-  │     Rifa'i VM     │  (Phase 3 — Planned: Stack VM execution)
-  └───────────────────┘
-```
+          |
+          v
+  +-------------------+
+  | Frontend: Lexer   |  Phase 1
+  +---------+---------+
+            | LexResult(tokens, diagnostics)
+            v
+  +-------------------+
+  | Frontend: Parser  |  Phase 2
+  +---------+---------+
+            | ParseResult(program, diagnostics)
+            v
+  +-------------------+
+  | Semantic Analyzer |  Phase 2
+  +---------+---------+
+            | SemanticResult(diagnostics, inferred types, bindings)
+            v
+  +-------------------+
+  | Bytecode Generator|  Phase 4
+  +---------+---------+
+            | BytecodeModule
+            v
+  +-------------------+
+  | Bytecode Serializer| Phase 3
+  +---------+---------+
+            | .rbc
+            v
+  +-------------------+
+  | Rifa'i VM         |  Phase 3 core / Phase 4 functions
+  +-------------------+
+~~~
 
----
+Phase 3 establishes a usable bytecode contract and VM core. It deliberately does not compile source AST nodes; AST-to-bytecode generation is Phase 4.
 
-## 2. Package Layout (`src/rifai/`)
+## 2. Package Layout
 
-- `rifai/cli.py` & `rifai/__main__.py`: CLI entrypoint (`python -m rifai <command> <file.rif>`) exposing `tokens`, `parse`, `ast`, and `check`.
-- `rifai/errors/diagnostics.py`: Unified `Diagnostic` and `DiagnosticPhase` (`LEXER`, `PARSER`, `SEMANTIC`, `BYTECODE`, `VM`, `IO`).
-- `rifai/frontend/tokens.py`: `TokenType` enum, `KEYWORDS`, and immutable `Token` dataclass.
-- `rifai/frontend/lexer.py`: `Lexer` and `LexResult`.
-- `rifai/frontend/ast_nodes.py`: Immutable AST dataclasses (`Program`, statements, expressions, `SourceSpan`) and `format_ast()`.
-- `rifai/frontend/parser.py`: Recursive Descent `Parser` and `ParseResult` with panic-mode error recovery.
-- `rifai/frontend/types.py`: `RifaiType` enum (`INT`, `FLOAT`, `BOOL`, `STRING`, `VOID`, `ERROR`) and type predicates.
-- `rifai/frontend/symbol_table.py`: Nested `Scope`, `VariableSymbol`, `FunctionSymbol`, and `SymbolTable`.
-- `rifai/frontend/semantic.py`: `SemanticAnalyzer` and `SemanticResult`.
-- `rifai/bytecode/` & `rifai/vm/`: Reserved for Phase 3.
+- rifai/cli.py and rifai/__main__.py: CLI entrypoint.
+- rifai/errors/diagnostics.py: shared source-aware diagnostics.
+- rifai/frontend/: Lexer, Parser, AST, type system, scopes, and semantic model.
+- rifai/bytecode/instructions.py: opcode definitions, operands, source locations, and stack effects.
+- rifai/bytecode/chunk.py: immutable code chunk structure.
+- rifai/bytecode/module.py: module and constant-pool model.
+- rifai/bytecode/verifier.py: structural, operand, CFG, and stack-height validation.
+- rifai/bytecode/serializer.py: versioned .rbc encoding and decoding.
+- rifai/bytecode/disassembler.py: readable instruction listing.
+- rifai/vm/machine.py: stack-based interpreter.
+- rifai/vm/runtime.py: execution results and runtime exceptions.
 
----
+## 3. Bytecode Model
 
-## 3. Phase 2 Frontend Components
+A BytecodeModule contains:
+- A typed constant pool (int, float, bool, and string).
+- One main CodeChunk.
+- A source-name field.
+- A bytecode format version.
 
-### 3.1 AST Architecture (`ast_nodes.py`)
-- Statements (`Statement`) and expressions (`Expression`) are immutable frozen dataclasses carrying a `SourceSpan` (`line`, `column`, `start_offset`, `end_offset`) and originating operator/identifier `Token`s.
-- AST nodes contain no parsing or execution logic.
-- `format_ast(node)` produces an indented box-drawing tree for inspection via `python -m rifai ast`.
+A CodeChunk contains:
+- A stable name.
+- An immutable instruction tuple.
+- A local-slot count.
+- An arity field reserved for future function chunks.
 
-### 3.2 Recursive Descent Parser (`parser.py`)
-- Consumes `LexResult.tokens` without inspecting raw source text.
-- Implements layered recursive-descent methods matching `docs/grammar.ebnf` (`_parse_or` -> `_parse_and` -> `_parse_equality` -> `_parse_comparison` -> `_parse_term` -> `_parse_factor` -> `_parse_unary` -> `_parse_primary`).
-- Distinguishes top-level `fn` declarations from statements and rejects nested `fn` declarations inside blocks.
-- Uses panic-mode synchronization (`_synchronize()`) at `;`, `}`, statement/declaration starters, and `EOF` to accumulate multiple syntax errors without infinite loops.
+Every instruction contains an Opcode, an optional typed operand, and an optional source location.
 
-### 3.3 Symbol Table & Scope Management (`symbol_table.py`)
-- `Scope` chains child scopes to their parent (`global` at depth 0, `fn:<name>` at depth 1, nested `block` scopes at depth `N`).
-- Supports shadowing in child scopes while rejecting duplicate declarations in the same scope and global name collisions between functions and variables.
+Version 1 is intentionally a single-main-chunk format. Function chunks and call-frame execution are introduced in Phase 4.
 
-### 3.4 Semantic Analyzer & Semantic Model (`semantic.py`)
-- **Pass 1**: Collects all top-level `FunctionDeclaration` signatures into global scope, validating parameter uniqueness and forbidding `void` parameter types. This enables recursion, mutual recursion, and forward function calls.
-- **Pass 2**: Walks top-level declarations and function bodies in source order (variables are not hoisted), checking strict type compatibility, operator rules, `if`/`while` boolean conditions, `print` non-`void` values, `return` validity, and definite-return coverage for non-`void` functions.
-- **Error Suppression**: Uses `RifaiType.ERROR` on invalid subexpressions so a single type mistake does not trigger cascading downstream errors.
-- **SemanticResult**: Exposes `diagnostics`, `is_valid`, `global_symbols`, and identity-keyed (`id(node)`) maps `expression_types`, `variable_bindings`, and `function_bindings` (with helpers `type_of`, `variable_for`, `function_for`) so Phase 3 bytecode generation can consume resolved types and symbols without mutating the AST.
+## 4. Instruction and Stack Conventions
+
+The VM is stack-based. Constant and load instructions push one value. Store, print, and pop instructions consume one value. Binary operators consume two values and push one result. Unary operators preserve stack height. DUP duplicates the top item. JUMP transfers to an absolute instruction index. JUMP_IF_FALSE consumes a boolean and branches when it is false. HALT terminates the main chunk and requires an empty operand stack.
+
+LOAD_LOCAL and STORE_LOCAL address zero-based slots in the active chunk. LOAD_GLOBAL and STORE_GLOBAL use a global symbol name. Local slots begin uninitialized; reading an uninitialized slot is a runtime error.
+
+The VM enforces exact runtime operand types to mirror the frontend's strict static type rules. Integer division produces a float. String addition concatenates strings. Division and modulo by zero produce source-aware runtime diagnostics.
+
+## 5. Verification and Serialization
+
+The .rbc file begins with the RIFAI-RBC magic header and contains a UTF-8 JSON payload with format version 1. Constants are tagged with explicit types so JSON booleans and integers cannot be confused.
+
+The verifier runs before execution and validates:
+- Supported format version and constant values.
+- Opcode and operand contracts.
+- Constant and local indices.
+- Jump target ranges.
+- Exactly one final HALT.
+- Operand-stack underflow.
+- Consistent stack heights at control-flow merge points.
+- No reachable fall-through beyond the instruction sequence.
+- An empty operand stack at HALT.
+
+The verifier is not a replacement for runtime checks. Dynamic values, uninitialized locals, undefined globals, invalid operand types, division by zero, and instruction/stack resource limits are checked by the VM.
+
+## 6. Diagnostics and Runtime Behavior
+
+Bytecode verification uses the shared BYTECODE diagnostic phase. Runtime failures use VM diagnostics. Instructions may carry source-map locations so faults can point back to the source line and column once Phase 4 emits instructions from AST nodes.
+
+The VM captures print output in ExecutionResult.output, returns a read-only snapshot of globals, and exposes instruction counts and the final stack for testing and embedding. The CLI is responsible for writing captured output to the terminal.
+
+## 7. Phase Boundaries
+
+- **Phase 1:** Language specification foundation and Lexer.
+- **Phase 2:** AST, Parser, Symbol Table, and Semantic Analyzer.
+- **Phase 3:** Bytecode model, serializer, verifier, disassembler, and basic VM.
+- **Phase 4:** AST-to-bytecode code generation, function chunks, call frames, and full source execution.
+- **Phase 5:** Optimization, full-pipeline hardening, tests, and final documentation.

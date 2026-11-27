@@ -486,6 +486,8 @@ def _cse_chunk(
     old_to_new: dict[int, int] = {}
     hits = 0
     temp_types: list[tuple[int, str]] = []
+    new_temp_slots: set[int] = set()
+    used_temp_slots: set[int] = set()
     next_temp = chunk.local_count
 
     for block in graph.blocks:
@@ -545,6 +547,7 @@ def _cse_chunk(
                 cached = cache.get(expression_key) if range_is_pure and result_type is not None else None
                 if cached is not None:
                     temp_slot, cached_type = cached
+                    used_temp_slots.add(temp_slot)
                     replacement_index = len(output)
                     truncate_to = old_to_new[start]
                     del output[truncate_to:]
@@ -582,6 +585,7 @@ def _cse_chunk(
                     temp_slot = next_temp
                     next_temp += 1
                     temp_types.append((temp_slot, result_type))
+                    new_temp_slots.add(temp_slot)
                     output.append(Instruction(Opcode.DUP, location=instruction.location))
                     output.append(Instruction(Opcode.STORE_LOCAL, temp_slot, instruction.location))
                     cache[expression_key] = (temp_slot, result_type)
@@ -631,6 +635,59 @@ def _cse_chunk(
                 _pop(stack)
             output.append(instruction)
 
+    # Do not keep one-off cache slots: a cache is profitable only when a
+    # later expression actually reuses it. Compact surviving generated slots.
+    unused_new_slots = new_temp_slots - used_temp_slots
+    removed_positions: set[int] = set()
+    if unused_new_slots:
+        cleaned: list[Instruction] = []
+        position = 0
+        while position < len(output):
+            if (
+                output[position].opcode is Opcode.DUP
+                and position + 1 < len(output)
+                and output[position + 1].opcode is Opcode.STORE_LOCAL
+                and output[position + 1].operand in unused_new_slots
+            ):
+                removed_positions.update({position, position + 1})
+                position += 2
+                continue
+            cleaned.append(output[position])
+            position += 1
+        output = cleaned
+
+    kept_new_slots = sorted(new_temp_slots & used_temp_slots)
+    slot_remap = {
+        old_slot: chunk.local_count + offset
+        for offset, old_slot in enumerate(kept_new_slots)
+    }
+    if slot_remap:
+        output = [
+            Instruction(
+                instruction.opcode,
+                slot_remap.get(instruction.operand, instruction.operand)
+                if instruction.opcode in (Opcode.LOAD_LOCAL, Opcode.STORE_LOCAL)
+                else instruction.operand,
+                instruction.location,
+            )
+            for instruction in output
+        ]
+        temp_types = [
+            (slot_remap[slot], type_name)
+            for slot, type_name in temp_types
+            if slot in slot_remap
+        ]
+    else:
+        temp_types = []
+
+    if removed_positions:
+        old_to_new = {
+            old_index: new_position - sum(
+                1 for removed_position in removed_positions if removed_position < new_position
+            )
+            for old_index, new_position in old_to_new.items()
+        }
+
     # Every original branch target is a block leader, so its mapping always
     # points at the first emitted instruction for that block.
     remapped: list[Instruction] = []
@@ -641,7 +698,8 @@ def _cse_chunk(
                 raise ValueError(f"CSE removed branch target {instruction.operand}.")
             instruction = Instruction(instruction.opcode, target, instruction.location)
         remapped.append(instruction)
-    return CodeChunk(chunk.name, tuple(remapped), next_temp, chunk.arity), hits, tuple(temp_types)
+    final_local_count = chunk.local_count + len(kept_new_slots)
+    return CodeChunk(chunk.name, tuple(remapped), final_local_count, chunk.arity), hits, tuple(temp_types)
 
 
 def optimize_module_dataflow(module: BytecodeModule) -> DataFlowResult:

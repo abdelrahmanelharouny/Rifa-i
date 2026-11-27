@@ -59,13 +59,14 @@ def _operation_type(
     inputs: tuple[IRValue, ...],
     constants: tuple[object, ...],
     functions: dict[str, BytecodeFunction],
+    local_types: dict[int, str],
 ) -> str | None:
     opcode = instruction.opcode
     types = tuple(item.type_name for item in inputs)
     if opcode is Opcode.CONSTANT:
         return _constant_type(constants[instruction.operand])
     if opcode is Opcode.LOAD_LOCAL:
-        return None
+        return local_types.get(instruction.operand)
     if opcode is Opcode.LOAD_GLOBAL:
         return None
     if opcode is Opcode.NOT:
@@ -187,6 +188,7 @@ class BytecodeToIR:
             parameters[block.block_id] = tuple(block_params)
 
         block_by_start = {block.start: block for block in graph.blocks}
+        local_types = {slot: type_name for slot, (_, type_name) in local_metadata.items()}
         blocks: list[IRBlock] = []
         for block in graph.blocks:
             stack = list(parameters[block.block_id])
@@ -243,7 +245,9 @@ class BytecodeToIR:
                     inputs = tuple(self._take(stack, required, instruction))
                     outputs: tuple[IRValue, ...]
                     if produced:
-                        output_type = _operation_type(instruction, inputs, constants, functions)
+                        output_type = _operation_type(
+                            instruction, inputs, constants, functions, local_types
+                        )
                         outputs = (IRValue(next_value_id, output_type),)
                         next_value_id += 1
                         stack.extend(outputs)

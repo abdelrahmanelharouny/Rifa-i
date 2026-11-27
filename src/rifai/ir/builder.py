@@ -77,6 +77,8 @@ def _operation_type(
         return "bool"
     if opcode is Opcode.ADD and types == ("string", "string"):
         return "string"
+    if opcode is Opcode.DIVIDE:
+        return "float" if types[0] in ("int", "float") and types[0] == types[1] else None
     if opcode in _BINARY:
         return types[0] if types[0] == types[1] else None
     if opcode is Opcode.CALL:

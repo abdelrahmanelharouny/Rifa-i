@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 import math
 
@@ -32,6 +32,41 @@ class _CallFrame:
     stack_base: int
     returns_value: bool
     is_main: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class DebugLocalSnapshot:
+    """Source-level local variable state captured before one instruction."""
+
+    slot: int
+    name: str
+    type_name: str
+    initialized: bool
+    value: RuntimeValue | None
+
+
+@dataclass(frozen=True, slots=True)
+class DebugFrameSnapshot:
+    """Read-only view of one active VM call frame."""
+
+    name: str
+    instruction_pointer: int
+    stack_base: int
+    is_main: bool
+    locals: tuple[DebugLocalSnapshot, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class InstructionSnapshot:
+    """Immutable VM state immediately before executing an instruction."""
+
+    instruction: Instruction
+    frame_name: str
+    instruction_index: int
+    frames: tuple[DebugFrameSnapshot, ...]
+    operand_stack: tuple[RuntimeValue, ...]
+    globals: tuple[tuple[str, RuntimeValue], ...]
+    instructions_executed: int
 
 
 class VirtualMachine:
@@ -82,8 +117,10 @@ class VirtualMachine:
         module: BytecodeModule,
         *,
         initial_globals: Mapping[str, RuntimeValue] | None = None,
+        on_instruction: Callable[[InstructionSnapshot], None] | None = None,
+        debug_symbols: Mapping[str, Mapping[int, tuple[str, str]]] | None = None,
     ) -> ExecutionResult:
-        """Verify and execute a module, returning captured output and global state."""
+        """Verify and execute a module, optionally observing each pre-instruction state."""
         validation = BytecodeVerifier().verify(module)
         if not validation.is_valid:
             raise BytecodeValidationError(validation.diagnostics)
@@ -176,6 +213,45 @@ class VirtualMachine:
                 )
 
             instruction = frame.chunk.instructions[frame.ip]
+            if on_instruction is not None:
+                frame_snapshots: list[DebugFrameSnapshot] = []
+                for active_frame in frames:
+                    names = (debug_symbols or {}).get(active_frame.name, {})
+                    local_snapshots = []
+                    for slot, local_value in enumerate(active_frame.locals):
+                        local_name, type_name = names.get(
+                            slot, (f"local[{slot}]", "unknown")
+                        )
+                        initialized = local_value is not _UNINITIALIZED
+                        local_snapshots.append(
+                            DebugLocalSnapshot(
+                                slot=slot,
+                                name=local_name,
+                                type_name=type_name,
+                                initialized=initialized,
+                                value=local_value if initialized else None,
+                            )
+                        )
+                    frame_snapshots.append(
+                        DebugFrameSnapshot(
+                            name=active_frame.name,
+                            instruction_pointer=active_frame.ip,
+                            stack_base=active_frame.stack_base,
+                            is_main=active_frame.is_main,
+                            locals=tuple(local_snapshots),
+                        )
+                    )
+                on_instruction(
+                    InstructionSnapshot(
+                        instruction=instruction,
+                        frame_name=frame.name,
+                        instruction_index=frame.ip,
+                        frames=tuple(frame_snapshots),
+                        operand_stack=tuple(stack),
+                        globals=tuple(sorted(globals_.items())),
+                        instructions_executed=executed,
+                    )
+                )
             opcode = instruction.opcode
             next_ip = frame.ip + 1
             executed += 1

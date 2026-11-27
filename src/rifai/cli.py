@@ -233,6 +233,59 @@ def _run_disasm_command(file_path: Path) -> int:
     return 0
 
 
+def _run_debug_command(
+    file_path: Path,
+    breakpoints: Sequence[int],
+    *,
+    optimize: bool = True,
+) -> int:
+    """Compile source with transient debug metadata and start the interactive debugger."""
+    if file_path.suffix.lower() != ".rif":
+        print(f"[debug] Expected a .rif source file, got: {file_path}", file=sys.stderr)
+        return 2
+    source = _read_source(file_path)
+    if source is None:
+        return 1
+
+    result = Compiler(optimize=optimize).compile(source, source_name=str(file_path))
+    if not result.is_success or result.module is None:
+        _print_diagnostics(result.diagnostics, file_path)
+        return 1
+
+    from rifai.vm.debugger import InteractiveDebugger
+
+    invalid = [line for line in breakpoints if type(line) is not int or line < 1]
+    if invalid:
+        print("[debug] Breakpoint lines must be positive integers.", file=sys.stderr)
+        return 2
+    if any(line > max(1, len(source.splitlines())) for line in breakpoints):
+        print("[debug] A breakpoint line is outside the source file.", file=sys.stderr)
+        return 2
+
+    debugger = InteractiveDebugger(
+        result.module,
+        source,
+        debug_symbols=result.debug_symbols,
+        source_name=str(file_path),
+        breakpoints=breakpoints,
+    )
+    try:
+        outcome = debugger.run()
+    except VMRuntimeError as exc:
+        print(exc.diagnostic.format(str(file_path)), file=sys.stderr)
+        return 1
+    if outcome.aborted:
+        print("Debugging aborted.", file=sys.stderr)
+        return 130
+    if outcome.execution is None:
+        return 1
+    print("Program output:")
+    for line in outcome.execution.output:
+        print(line)
+    print(f"Execution finished: {outcome.execution.instructions_executed} instruction(s).")
+    return 0
+
+
 def _run_inspect_command(file_path: Path, output_path: Path | None, *, optimize: bool) -> int:
     source = _read_source(file_path)
     if source is None:
@@ -326,6 +379,20 @@ def build_parser() -> argparse.ArgumentParser:
     inspect_parser.add_argument("-o", "--output", type=Path, help="Write JSON to this path instead of stdout.")
     inspect_parser.add_argument("--no-optimize", action="store_true", help="Inspect unoptimized bytecode.")
 
+    debug_parser = subparsers.add_parser(
+        "debug",
+        help="Run a .rif source program in the interactive source-level debugger.",
+    )
+    debug_parser.add_argument("file", type=Path, help="Path to a .rif source file.")
+    debug_parser.add_argument(
+        "-b", "--breakpoint", action="append", type=int, default=[],
+        help="Pause before executing instructions mapped to this source line; may be repeated.",
+    )
+    debug_parser.add_argument(
+        "--no-optimize", action="store_true",
+        help="Disable bytecode optimization to retain the most direct source-level stepping.",
+    )
+
     subparsers.add_parser("lsp", help="Start the Rifa'i Language Server over stdio.")
     return parser
 
@@ -343,6 +410,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     if args.command == "run":
         return _run_command(args.file, optimize=not args.no_optimize)
+    if args.command == "debug":
+        return _run_debug_command(
+            args.file,
+            args.breakpoint,
+            optimize=not args.no_optimize,
+        )
     if args.command == "inspect":
         if args.file.suffix.lower() != ".rif":
             print(f"[io] Expected a .rif source file, got: {args.file}", file=sys.stderr)

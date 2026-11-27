@@ -171,7 +171,9 @@ class IRModule:
     def edge_count(self) -> int:
         return sum(
             1 if isinstance(block.terminator, IRJump)
-            else 2 if isinstance(block.terminator, IRBranch)
+            else (
+                1 if block.terminator.false_target == block.terminator.true_target else 2
+            ) if isinstance(block.terminator, IRBranch)
             else 0
             for function in (self.main, *self.functions)
             for block in function.blocks

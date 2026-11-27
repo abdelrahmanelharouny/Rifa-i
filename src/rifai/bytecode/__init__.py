@@ -5,9 +5,12 @@ from rifai.bytecode.codegen import CodeGenerationResult, CodeGenerator
 from rifai.bytecode.disassembler import disassemble
 from rifai.bytecode.instructions import Instruction, Opcode, SourceLocation
 from rifai.bytecode.module import (
+    BytecodeDebugInfo,
+    BytecodeDebugLocal,
     BytecodeModule,
     Constant,
     FORMAT_VERSION,
+    FUNCTIONS_FORMAT_VERSION,
     LEGACY_FORMAT_VERSION,
 )
 from rifai.bytecode.optimizer import (
@@ -19,6 +22,8 @@ from rifai.bytecode.serializer import BytecodeFormatError, BytecodeSerializer
 from rifai.bytecode.verifier import BytecodeValidationResult, BytecodeVerifier
 
 __all__ = [
+    "BytecodeDebugInfo",
+    "BytecodeDebugLocal",
     "BytecodeFormatError",
     "BytecodeFunction",
     "BytecodeModule",
@@ -31,6 +36,7 @@ __all__ = [
     "CodeGenerator",
     "Constant",
     "FORMAT_VERSION",
+    "FUNCTIONS_FORMAT_VERSION",
     "Instruction",
     "LEGACY_FORMAT_VERSION",
     "Opcode",

@@ -406,6 +406,7 @@ class BytecodeOptimizer:
             source_name=module.source_name,
             format_version=module.format_version,
             functions=compact_functions,
+            debug_info=module.debug_info,
         )
 
         final_validation = BytecodeVerifier().verify(optimized)

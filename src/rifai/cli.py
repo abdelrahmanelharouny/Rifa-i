@@ -239,40 +239,81 @@ def _run_debug_command(
     *,
     optimize: bool = True,
 ) -> int:
-    """Compile source with transient debug metadata and start the interactive debugger."""
-    if file_path.suffix.lower() != ".rif":
-        print(f"[debug] Expected a .rif source file, got: {file_path}", file=sys.stderr)
+    """Debug a source program or a standalone compiled bytecode module."""
+    debug_source_name = str(file_path)
+    if file_path.suffix.lower() == ".rif":
+        source = _read_source(file_path)
+        if source is None:
+            return 1
+        result = Compiler(optimize=optimize).compile(source, source_name=str(file_path))
+        if not result.is_success or result.module is None:
+            _print_diagnostics(result.diagnostics, file_path)
+            return 1
+        module = result.module
+        debug_symbols = module.debug_info.as_mapping() if module.debug_info else result.debug_symbols
+        debug_source_name = str(file_path)
+    elif file_path.suffix.lower() == ".rbc":
+        module = _load_bytecode(file_path)
+        if module is None:
+            return 1
+        info = module.debug_info
+        debug_symbols = info.as_mapping() if info is not None else {}
+        source = info.source_text if info is not None and info.source_text is not None else ""
+        debug_source_name = module.source_name or str(file_path)
+        if not source and module.source_name:
+            candidate = Path(module.source_name)
+            if not candidate.is_absolute() and not candidate.is_file():
+                candidate = (file_path.parent / candidate).resolve()
+            if candidate.is_file():
+                loaded_source = _read_source(candidate)
+                if loaded_source is not None:
+                    source = loaded_source
+                    debug_source_name = str(candidate)
+    else:
+        print(
+            f"[debug] Expected a .rif source or .rbc bytecode file, got: {file_path}",
+            file=sys.stderr,
+        )
         return 2
-    source = _read_source(file_path)
-    if source is None:
-        return 1
-
-    result = Compiler(optimize=optimize).compile(source, source_name=str(file_path))
-    if not result.is_success or result.module is None:
-        _print_diagnostics(result.diagnostics, file_path)
-        return 1
-
-    from rifai.vm.debugger import InteractiveDebugger
 
     invalid = [line for line in breakpoints if type(line) is not int or line < 1]
     if invalid:
         print("[debug] Breakpoint lines must be positive integers.", file=sys.stderr)
         return 2
-    if any(line > max(1, len(source.splitlines())) for line in breakpoints):
-        print("[debug] A breakpoint line is outside the source file.", file=sys.stderr)
+
+    available_lines = {
+        instruction.location.line
+        for chunk in (module.main, *(function.chunk for function in module.functions))
+        for instruction in chunk.instructions
+        if instruction.location is not None
+    }
+    if source:
+        out_of_range = [line for line in breakpoints if line > len(source.splitlines())]
+        if out_of_range:
+            print("[debug] A breakpoint line is outside the source file.", file=sys.stderr)
+            return 2
+    invalid_lines = [line for line in breakpoints if line not in available_lines]
+    if invalid_lines:
+        print(
+            "[debug] No executable bytecode is mapped to breakpoint line(s): "
+            + ", ".join(str(line) for line in invalid_lines),
+            file=sys.stderr,
+        )
         return 2
 
+    from rifai.vm.debugger import InteractiveDebugger
+
     debugger = InteractiveDebugger(
-        result.module,
+        module,
         source,
-        debug_symbols=result.debug_symbols,
-        source_name=str(file_path),
+        debug_symbols=debug_symbols,
+        source_name=debug_source_name,
         breakpoints=breakpoints,
     )
     try:
         outcome = debugger.run()
     except VMRuntimeError as exc:
-        print(exc.diagnostic.format(str(file_path)), file=sys.stderr)
+        print(exc.diagnostic.format(debug_source_name), file=sys.stderr)
         return 1
     if outcome.aborted:
         print("Debugging aborted.", file=sys.stderr)
@@ -381,7 +422,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     debug_parser = subparsers.add_parser(
         "debug",
-        help="Run a .rif source program in the interactive source-level debugger.",
+        help="Debug a .rif source program or a compiled .rbc module.",
     )
     debug_parser.add_argument("file", type=Path, help="Path to a .rif source file.")
     debug_parser.add_argument(
@@ -393,6 +434,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Disable bytecode optimization to retain the most direct source-level stepping.",
     )
 
+    subparsers.add_parser("debug-adapter", help="Start the Rifa'i Debug Adapter Protocol server over stdio.")
     subparsers.add_parser("lsp", help="Start the Rifa'i Language Server over stdio.")
     return parser
 
@@ -421,6 +463,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"[io] Expected a .rif source file, got: {args.file}", file=sys.stderr)
             return 2
         return _run_inspect_command(args.file, args.output, optimize=not args.no_optimize)
+    if args.command == "debug-adapter":
+        from rifai.vm.dap import serve
+        return serve()
     if args.command == "lsp":
         from rifai.lsp import serve
         return serve()

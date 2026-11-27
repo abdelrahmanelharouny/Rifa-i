@@ -10,7 +10,7 @@ Rifa'i (.rif) is a custom statically typed programming language implemented in P
 - **Phase 4 — Code Generation and Full Execution (Complete):** AST-to-bytecode compiler, globals and local slots, control flow, function chunks, call frames, recursion, end-to-end source compilation, and compile / run CLI commands.
 - **Phase 5 — Optimization and Final Hardening (Complete):** Conservative bytecode optimization, bounded VM resources, hardened bytecode validation and atomic serialization, reproducible performance benchmarks, final examples, and delivery documentation.
 - **Phase 6 — Developer Experience (Complete):** stdio Language Server Protocol implementation, VS Code language extension, live diagnostics, completion, hover, definition/references, document symbols, signature help, and structured compiler-pipeline inspection.
-- **Phase 7 — Interactive Debugger (Complete):** Source-mapped breakpoints, step into/over/out, instruction stepping, live locals/globals/operand-stack inspection, call-stack backtraces, and source-level local variable names without changing the bytecode format.
+- **Phase 7 — Debugging Toolchain (Complete):** Interactive CLI debugger and VS Code Debug Adapter Protocol integration, source breakpoints, step into/over/out, locals/globals/operand-stack inspection, call stack, and standalone .rbc debugging with embedded source and local-symbol metadata.
 
 ## Quick Start
 
@@ -62,7 +62,8 @@ python -m pytest -v
 | rifai disasm file.rbc | Verify and disassemble bytecode |
 | rifai vm file.rbc | Execute an existing bytecode module |
 | rifai inspect file.rif [-o report.json] [--no-optimize] | Export tokens, AST, semantic bindings, bytecode, and optimization data as JSON |
-| rifai debug file.rif [-b line] [--no-optimize] | Start the interactive source debugger |
+| rifai debug file.rif or file.rbc [-b line] [--no-optimize] | Start the interactive debugger |
+| rifai debug-adapter | Start the VS Code Debug Adapter Protocol server over stdio |
 | rifai lsp | Start the stdio Language Server |
 
 ## Phase 5: Optimization
@@ -109,23 +110,10 @@ Use `rifai inspect examples/hello.rif -o hello.inspect.json` to export a version
 Editor integration details and packaging instructions are documented in [editors/vscode/README.md](editors/vscode/README.md) and [docs/phase6-report.md](docs/phase6-report.md).
 
 
-## Phase 7: Interactive Debugger
+## Phase 7: Debugging Toolchain
 
-Run **rifai debug program.rif** to start a source-aware debugging session. The debugger pauses before the first instruction and accepts commands at the `(rifai-debug)` prompt. Add one or more initial line breakpoints with `-b 12` or `--breakpoint 12`.
+Run `rifai debug program.rif` or `rifai debug program.rbc` to start the CLI debugger. Bytecode v3 embeds optional source text and per-chunk local-slot names/types, so standalone `.rbc` files can be debugged after the original source is removed. Legacy v1/v2 bytecode remains readable and executable; older files do not contain the source-level metadata.
 
-| Command | Action |
-|---|---|
-| `continue` / `c` | Continue until the next breakpoint |
-| `step` / `s` | Step into the next source expression or function call |
-| `next` / `n` | Step over the current source expression or call |
-| `out` / `finish` | Run until the current function returns |
-| `stepi` | Execute one bytecode instruction |
-| `break 12` / `delete 12` | Add or remove a source-line breakpoint |
-| `locals`, `globals`, `stack` | Inspect current variables and operand stack |
-| `backtrace` / `bt` | Inspect active function call frames |
-| `list`, `where` | Show nearby source and current instruction |
-| `help`, `quit` | Show commands or stop debugging |
+The VS Code extension registers a Debug Adapter Protocol implementation. Open a `.rif` file, select **Debug current Rifa'i file**, and press F5; or create a `rifai` launch configuration pointing to a compiled `.rbc` file. The adapter supports entry and source-line breakpoints, continue, pause, step over/into/out, call-stack frames, locals, globals, operand stack, and embedded source retrieval. Hover/evaluate reads a direct variable name only; it does not execute arbitrary expressions.
 
-The VM exposes an optional immutable pre-instruction observer API. The compiler carries source-level local names and types as transient debug metadata alongside a compilation result; this metadata is not serialized into `.rbc`, so bytecode v1/v2 compatibility and the file format remain unchanged. Source-level debugging is therefore available for `.rif` inputs compiled in the current process. When optimization is disabled with `--no-optimize`, stepping follows the direct code-generator instruction sequence, which is useful when investigating compiler output.
-
-See [docs/phase7-report.md](docs/phase7-report.md) for implementation notes and limitations.
+The VM exposes immutable pre-instruction snapshots shared by both debugger interfaces. The optimizer preserves embedded metadata because local slots are not renumbered. Use `--no-optimize` in the CLI or `noOptimize` in `launch.json` to follow the direct code-generator instruction sequence. See [docs/phase7-report.md](docs/phase7-report.md) and [editors/vscode/README.md](editors/vscode/README.md).

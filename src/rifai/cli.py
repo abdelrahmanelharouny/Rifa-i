@@ -181,7 +181,10 @@ def _run_compile_command(
             f"{ir_stats.operation_count} operation(s), "
             f"{ir_stats.value_count} value(s), "
             f"{ir_stats.edge_count} edge(s), "
-            f"{ir_stats.loop_back_edge_count} loop back-edge(s)."
+            f"{ir_stats.loop_back_edge_count} loop back-edge(s), "
+            f"{ir_stats.constant_folds} IR constant fold(s), "
+            f"{ir_stats.branches_simplified} branch simplification(s), "
+            f"{ir_stats.blocks_removed} unreachable block(s) removed."
         )
     return 0
 

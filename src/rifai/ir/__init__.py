@@ -16,6 +16,7 @@ from rifai.ir.model import (
     IRValue,
 )
 from rifai.ir.passes import IRPassManager, IRPassResult, IRPassStats, IRValueNumberingPass
+from rifai.ir.pipeline import IRPipeline, IRPipelineResult
 from rifai.ir.verifier import IRValidationResult, IRVerifier
 
 __all__ = [
@@ -34,6 +35,8 @@ __all__ = [
     "IRPassManager",
     "IRPassResult",
     "IRPassStats",
+    "IRPipeline",
+    "IRPipelineResult",
     "IRReturn",
     "IRToBytecode",
     "IRValidationResult",

@@ -1,6 +1,7 @@
 """Bytecode models, generation, optimization, serialization, and inspection."""
 
-from rifai.bytecode.cfg import BasicBlock, ControlFlowGraph, analyze_module_control_flow, build_control_flow_graph\nfrom rifai.bytecode.chunk import BytecodeFunction, CodeChunk
+from rifai.bytecode.cfg import BasicBlock, ControlFlowGraph, analyze_module_control_flow, build_control_flow_graph
+from rifai.bytecode.chunk import BytecodeFunction, CodeChunk
 from rifai.bytecode.codegen import CodeGenerationResult, CodeGenerator
 from rifai.bytecode.disassembler import disassemble
 from rifai.bytecode.instructions import Instruction, Opcode, SourceLocation
@@ -24,7 +25,11 @@ from rifai.bytecode.serializer import BytecodeFormatError, BytecodeSerializer
 from rifai.bytecode.verifier import BytecodeValidationResult, BytecodeVerifier
 
 __all__ = [
-    "BasicBlock",\n    "ControlFlowGraph",\n    "analyze_module_control_flow",\n    "build_control_flow_graph",\n    "BytecodeDebugInfo",
+    "BasicBlock",
+    "ControlFlowGraph",
+    "analyze_module_control_flow",
+    "build_control_flow_graph",
+    "BytecodeDebugInfo",
     "BytecodeDebugLocal",
     "BytecodeFormatError",
     "BytecodeFunction",

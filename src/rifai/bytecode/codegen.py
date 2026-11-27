@@ -20,7 +20,6 @@ from rifai.frontend.ast_nodes import (
     GroupingExpression,
     IfStatement,
     LiteralExpression,
-    Parameter,
     PrintStatement,
     Program,
     ReturnStatement,
@@ -32,7 +31,7 @@ from rifai.frontend.ast_nodes import (
     WhileStatement,
 )
 from rifai.frontend.semantic import SemanticResult
-from rifai.frontend.symbol_table import FunctionSymbol, VariableSymbol
+from rifai.frontend.symbol_table import VariableSymbol
 from rifai.frontend.tokens import TokenType
 from rifai.frontend.types import RifaiType
 
@@ -155,8 +154,12 @@ class CodeGenerator:
         for statement in declaration.body.statements:
             self._compile_statement(statement, semantic)
 
-        if symbol.return_type is RifaiType.VOID:
-            self._emit(Opcode.RETURN, location=declaration.body.span)
+        # Every chunk has an explicit epilogue. For a valid non-void function,
+        # semantic definite-return analysis guarantees that this guard is
+        # unreachable. The verifier rejects any path that reaches it without
+        # the required return value, and jump patching always has an in-range
+        # terminal instruction after an if/else chain.
+        self._emit(Opcode.RETURN, location=declaration.body.span)
 
         chunk = CodeChunk(
             name=declaration.name,
@@ -294,11 +297,7 @@ class CodeGenerator:
                 self._error(span, "Missing variable binding during bytecode generation.")
         return symbol
 
-    def _load_variable(
-        self,
-        symbol: VariableSymbol,
-        span: SourceSpan,
-    ) -> None:
+    def _load_variable(self, symbol: VariableSymbol, span: SourceSpan) -> None:
         if symbol.is_global:
             self._emit(Opcode.LOAD_GLOBAL, symbol.name, location=span)
             return
@@ -308,11 +307,7 @@ class CodeGenerator:
             return
         self._emit(Opcode.LOAD_LOCAL, slot, location=span)
 
-    def _store_variable(
-        self,
-        symbol: VariableSymbol,
-        span: SourceSpan,
-    ) -> None:
+    def _store_variable(self, symbol: VariableSymbol, span: SourceSpan) -> None:
         if symbol.is_global:
             self._emit(Opcode.STORE_GLOBAL, symbol.name, location=span)
             return
@@ -428,4 +423,3 @@ class CodeGenerator:
                 self._emit(Opcode.CALL, symbol.name, location=expression.span)
         else:
             self._error(expression.span, f"Unsupported expression node '{type(expression).__name__}'.")
-

@@ -9,6 +9,7 @@ from rifai.bytecode.chunk import BytecodeFunction, CodeChunk
 from rifai.bytecode.instructions import (
     Instruction,
     Opcode,
+    SourceLocation,
     expected_operand_kind,
     stack_delta,
     stack_requirement,
@@ -23,6 +24,11 @@ from rifai.errors.diagnostics import Diagnostic, DiagnosticPhase
 
 _ALLOWED_VALUE_TYPES = frozenset({"int", "float", "bool", "string"})
 _ALLOWED_RETURN_TYPES = _ALLOWED_VALUE_TYPES | {"void"}
+MAX_CONSTANT_COUNT = 500_000
+MAX_FUNCTION_COUNT = 100_000
+MAX_INSTRUCTIONS_PER_CHUNK = 1_000_000
+MAX_LOCAL_COUNT = 100_000
+MAX_CONSTANT_STRING_CHARS = 16 * 1024 * 1024
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,7 +49,12 @@ class BytecodeVerifier:
         diagnostics: list[Diagnostic] = []
 
         def report(message: str, instruction: Instruction | None = None) -> None:
-            location = instruction.location if instruction is not None else None
+            location = (
+                instruction.location
+                if isinstance(instruction, Instruction)
+                and isinstance(instruction.location, SourceLocation)
+                else None
+            )
             diagnostics.append(
                 Diagnostic(
                     phase=DiagnosticPhase.BYTECODE,
@@ -68,9 +79,17 @@ class BytecodeVerifier:
         if not isinstance(module.constants, tuple):
             report("Module constants must be an immutable tuple.")
         else:
+            if len(module.constants) > MAX_CONSTANT_COUNT:
+                report(f"Constant pool exceeds the limit ({MAX_CONSTANT_COUNT}).")
+                return BytecodeValidationResult(tuple(diagnostics))
             for index, value in enumerate(module.constants):
                 if not is_constant(value):
                     report(f"Constant pool entry {index} has an unsupported value.")
+                elif type(value) is str and len(value) > MAX_CONSTANT_STRING_CHARS:
+                    report(
+                        f"Constant pool string {index} exceeds the size limit "
+                        f"({MAX_CONSTANT_STRING_CHARS} characters)."
+                    )
 
         if not isinstance(module.main, CodeChunk):
             report("Module main must be a CodeChunk.")
@@ -78,10 +97,14 @@ class BytecodeVerifier:
         if not isinstance(module.functions, tuple):
             report("Module functions must be an immutable tuple.")
             return BytecodeValidationResult(tuple(diagnostics))
+        if len(module.functions) > MAX_FUNCTION_COUNT:
+            report(f"Function table exceeds the limit ({MAX_FUNCTION_COUNT}).")
+            return BytecodeValidationResult(tuple(diagnostics))
         if module.format_version == LEGACY_FORMAT_VERSION and module.functions:
             report("Version 1 bytecode cannot contain function chunks.")
 
         function_by_name: dict[str, BytecodeFunction] = {}
+        seen_function_names: set[str] = set()
         for function in module.functions:
             if not isinstance(function, BytecodeFunction):
                 report("Function table contains an invalid entry.")
@@ -89,27 +112,39 @@ class BytecodeVerifier:
             if not isinstance(function.name, str) or not function.name:
                 report("Function names must be non-empty strings.")
                 continue
-            if function.name in function_by_name:
+            if function.name in seen_function_names:
                 report(f"Duplicate function '{function.name}' in bytecode module.")
                 continue
-            function_by_name[function.name] = function
+            seen_function_names.add(function.name)
             if not isinstance(function.chunk, CodeChunk):
                 report(f"Function '{function.name}' has an invalid code chunk.")
                 continue
             if function.chunk.name != function.name:
                 report(f"Function '{function.name}' chunk name does not match its metadata.")
-            if not isinstance(function.parameter_types, tuple) or any(
-                not isinstance(item, str) or item not in _ALLOWED_VALUE_TYPES
-                for item in function.parameter_types
-            ):
+            parameter_types_valid = (
+                isinstance(function.parameter_types, tuple)
+                and all(
+                    isinstance(item, str) and item in _ALLOWED_VALUE_TYPES
+                    for item in function.parameter_types
+                )
+            )
+            if not parameter_types_valid:
                 report(f"Function '{function.name}' has invalid parameter types.")
-            if (
-                not isinstance(function.return_type, str)
-                or function.return_type not in _ALLOWED_RETURN_TYPES
-            ):
+            return_type_valid = (
+                isinstance(function.return_type, str)
+                and function.return_type in _ALLOWED_RETURN_TYPES
+            )
+            if not return_type_valid:
                 report(f"Function '{function.name}' has an invalid return type.")
-            if function.chunk.arity != function.arity:
+            if (
+                parameter_types_valid
+                and function.chunk.arity != len(function.parameter_types)
+            ):
                 report(f"Function '{function.name}' arity does not match its signature.")
+            # Only well-formed signatures are valid CALL targets. This prevents
+            # malformed metadata from crashing call-stack verification below.
+            if parameter_types_valid and return_type_valid:
+                function_by_name[function.name] = function
 
         chunks: list[tuple[str, CodeChunk, str | None, bool]] = [
             ("<main>", module.main, None, True)
@@ -125,12 +160,23 @@ class BytecodeVerifier:
                 report(f"Code chunk '{chunk_name}' arity must be non-negative.")
             if type(chunk.local_count) is not int or chunk.local_count < 0:
                 report(f"Code chunk '{chunk_name}' local_count must be non-negative.")
+            elif chunk.local_count > MAX_LOCAL_COUNT:
+                report(
+                    f"Code chunk '{chunk_name}' local_count exceeds the limit "
+                    f"({MAX_LOCAL_COUNT})."
+                )
             elif type(chunk.arity) is int and chunk.arity > chunk.local_count:
                 report(f"Code chunk '{chunk_name}' arity cannot exceed local_count.")
 
             instructions = chunk.instructions
             if not isinstance(instructions, tuple):
                 report(f"Code chunk '{chunk_name}' instructions must be a tuple.")
+                continue
+            if len(instructions) > MAX_INSTRUCTIONS_PER_CHUNK:
+                report(
+                    f"Code chunk '{chunk_name}' exceeds the instruction limit "
+                    f"({MAX_INSTRUCTIONS_PER_CHUNK})."
+                )
                 continue
             if not instructions:
                 report(f"Code chunk '{chunk_name}' is empty.")
@@ -164,6 +210,33 @@ class BytecodeVerifier:
                 if not isinstance(instruction.opcode, Opcode):
                     report(f"Instruction {index} in '{chunk_name}' has an unknown opcode.")
                     continue
+
+                location = instruction.location
+                if location is not None:
+                    if not isinstance(location, SourceLocation):
+                        report(
+                            f"Instruction {index} in '{chunk_name}' has an invalid source location.",
+                            instruction,
+                        )
+                        continue
+                    coordinates = (
+                        location.line,
+                        location.column,
+                        location.start_offset,
+                        location.end_offset,
+                    )
+                    if (
+                        any(type(value) is not int for value in coordinates)
+                        or location.line < 1
+                        or location.column < 1
+                        or location.start_offset < 0
+                        or location.end_offset < location.start_offset
+                    ):
+                        report(
+                            f"Instruction {index} in '{chunk_name}' has invalid source coordinates.",
+                            instruction,
+                        )
+                        continue
 
                 opcode = instruction.opcode
                 kind = expected_operand_kind(opcode)

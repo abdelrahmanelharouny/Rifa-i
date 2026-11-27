@@ -43,3 +43,30 @@ def test_compile_command_accepts_explicit_output_path(tmp_path, capsys):
     source.write_text("print(42);", encoding="utf-8")
     assert main(["compile", str(source), "--output", str(target)]) == 0
     assert target.exists()
+
+def test_compile_command_reports_optimization_stats_by_default(tmp_path, capsys):
+    source = tmp_path / "optimized.rif"
+    source.write_text("print((2 * 3) + 4);", encoding="utf-8")
+
+    assert main(["compile", str(source)]) == 0
+    output = capsys.readouterr().out
+    assert "Optimization:" in output
+    assert "expression(s) folded" in output
+
+
+def test_compile_command_can_disable_optimization(tmp_path, capsys):
+    source = tmp_path / "plain.rif"
+    source.write_text("print((2 * 3) + 4);", encoding="utf-8")
+
+    assert main(["compile", str(source), "--no-optimize"]) == 0
+    output = capsys.readouterr().out
+    assert "Compilation succeeded" in output
+    assert "Optimization:" not in output
+
+
+def test_run_command_can_disable_optimization(tmp_path, capsys):
+    source = tmp_path / "plain.rif"
+    source.write_text("print((2 * 3) + 4);", encoding="utf-8")
+
+    assert main(["run", str(source), "--no-optimize"]) == 0
+    assert capsys.readouterr().out.strip() == "10"

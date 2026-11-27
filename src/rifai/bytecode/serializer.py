@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import math
+import os
 from pathlib import Path
+import tempfile
 
 from rifai.bytecode.chunk import BytecodeFunction, CodeChunk
 from rifai.bytecode.instructions import Instruction, Opcode, SourceLocation
@@ -241,7 +243,9 @@ class BytecodeSerializer:
                 data[len(MAGIC):].decode("utf-8"),
                 object_pairs_hook=_unique_object,
             )
-        except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
+        except BytecodeFormatError:
+            raise
+        except (UnicodeDecodeError, json.JSONDecodeError, RecursionError, ValueError) as exc:
             raise BytecodeFormatError(f"Invalid bytecode payload: {exc}") from exc
 
         if not isinstance(payload, dict):
@@ -288,12 +292,34 @@ class BytecodeSerializer:
 
     @classmethod
     def write(cls, module: BytecodeModule, path: str | Path) -> None:
-        Path(path).write_bytes(cls.to_bytes(module))
+        """Write a complete bytecode file atomically in the destination directory."""
+        data = cls.to_bytes(module)
+        target = Path(path)
+        temporary_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="wb",
+                prefix=f".{target.name}.",
+                suffix=".tmp",
+                dir=target.parent,
+                delete=False,
+            ) as temporary:
+                temporary_path = Path(temporary.name)
+                temporary.write(data)
+                temporary.flush()
+                os.fsync(temporary.fileno())
+            os.replace(temporary_path, target)
+            temporary_path = None
+        finally:
+            if temporary_path is not None:
+                temporary_path.unlink(missing_ok=True)
 
     @classmethod
     def read(cls, path: str | Path) -> BytecodeModule:
+        """Read at most the format limit plus one byte before rejecting oversized files."""
         target = Path(path)
-        size = target.stat().st_size
-        if size > MAX_BYTECODE_SIZE:
+        with target.open("rb") as stream:
+            data = stream.read(MAX_BYTECODE_SIZE + 1)
+        if len(data) > MAX_BYTECODE_SIZE:
             raise BytecodeFormatError("Bytecode module exceeds the maximum file size.")
-        return cls.from_bytes(target.read_bytes())
+        return cls.from_bytes(data)

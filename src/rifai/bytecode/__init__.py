@@ -1,4 +1,4 @@
-"""Bytecode models, generation, serialization, verification, and inspection."""
+"""Bytecode models, generation, optimization, serialization, and inspection."""
 
 from rifai.bytecode.chunk import BytecodeFunction, CodeChunk
 from rifai.bytecode.codegen import CodeGenerationResult, CodeGenerator
@@ -10,6 +10,11 @@ from rifai.bytecode.module import (
     FORMAT_VERSION,
     LEGACY_FORMAT_VERSION,
 )
+from rifai.bytecode.optimizer import (
+    BytecodeOptimizer,
+    OptimizationResult,
+    OptimizationStats,
+)
 from rifai.bytecode.serializer import BytecodeFormatError, BytecodeSerializer
 from rifai.bytecode.verifier import BytecodeValidationResult, BytecodeVerifier
 
@@ -17,6 +22,7 @@ __all__ = [
     "BytecodeFormatError",
     "BytecodeFunction",
     "BytecodeModule",
+    "BytecodeOptimizer",
     "BytecodeSerializer",
     "BytecodeValidationResult",
     "BytecodeVerifier",
@@ -28,6 +34,8 @@ __all__ = [
     "Instruction",
     "LEGACY_FORMAT_VERSION",
     "Opcode",
+    "OptimizationResult",
+    "OptimizationStats",
     "SourceLocation",
     "disassemble",
 ]

@@ -43,16 +43,27 @@ class VirtualMachine:
         max_steps: int = 1_000_000,
         max_stack_depth: int = 100_000,
         max_call_depth: int = 1_024,
+        max_string_length: int = 16 * 1024 * 1024,
+        max_output_chars: int = 16 * 1024 * 1024,
+        max_integer_bits: int = 1_000_000,
     ) -> None:
-        if max_steps < 1:
-            raise ValueError("max_steps must be at least 1.")
-        if max_stack_depth < 1:
-            raise ValueError("max_stack_depth must be at least 1.")
-        if max_call_depth < 1:
-            raise ValueError("max_call_depth must be at least 1.")
+        limits = {
+            "max_steps": max_steps,
+            "max_stack_depth": max_stack_depth,
+            "max_call_depth": max_call_depth,
+            "max_string_length": max_string_length,
+            "max_output_chars": max_output_chars,
+            "max_integer_bits": max_integer_bits,
+        }
+        for name, value in limits.items():
+            if type(value) is not int or value < 1:
+                raise ValueError(f"{name} must be a positive integer.")
         self.max_steps = max_steps
         self.max_stack_depth = max_stack_depth
         self.max_call_depth = max_call_depth
+        self.max_string_length = max_string_length
+        self.max_output_chars = max_output_chars
+        self.max_integer_bits = max_integer_bits
 
     @staticmethod
     def _matches_type(value: RuntimeValue, type_name: str) -> bool:
@@ -77,6 +88,9 @@ class VirtualMachine:
         if not validation.is_valid:
             raise BytecodeValidationError(validation.diagnostics)
 
+        if initial_globals is not None and not isinstance(initial_globals, Mapping):
+            raise TypeError("initial_globals must be a mapping or None.")
+
         globals_: dict[str, RuntimeValue] = {}
         for name, value in (initial_globals or {}).items():
             if not isinstance(name, str) or not name:
@@ -85,6 +99,16 @@ class VirtualMachine:
                 raise ValueError(f"Initial global {name!r} has an unsupported value.")
             if type(value) is float and not math.isfinite(value):
                 raise ValueError(f"Initial global {name!r} must be a finite float.")
+            if type(value) is int and value.bit_length() > self.max_integer_bits:
+                raise ValueError(
+                    f"Initial global {name!r} exceeds the integer bit limit "
+                    f"({self.max_integer_bits})."
+                )
+            if type(value) is str and len(value) > self.max_string_length:
+                raise ValueError(
+                    f"Initial global {name!r} exceeds the string length limit "
+                    f"({self.max_string_length})."
+                )
             globals_[name] = value
 
         functions: dict[str, BytecodeFunction] = {
@@ -92,6 +116,7 @@ class VirtualMachine:
         }
         stack: list[RuntimeValue] = []
         output: list[str] = []
+        output_chars = 0
         frames: list[_CallFrame] = [
             _CallFrame(
                 chunk=module.main,
@@ -121,6 +146,16 @@ class VirtualMachine:
         def push(value: RuntimeValue, instruction: Instruction) -> None:
             if type(value) is float and not math.isfinite(value):
                 raise fault("Floating-point result is not finite.", instruction)
+            if type(value) is int and value.bit_length() > self.max_integer_bits:
+                raise fault(
+                    f"Integer bit limit ({self.max_integer_bits}) exceeded.",
+                    instruction,
+                )
+            if type(value) is str and len(value) > self.max_string_length:
+                raise fault(
+                    f"String length limit ({self.max_string_length}) exceeded.",
+                    instruction,
+                )
             if len(stack) >= self.max_stack_depth:
                 raise fault(
                     f"Operand stack limit ({self.max_stack_depth}) exceeded.",
@@ -192,6 +227,11 @@ class VirtualMachine:
                 right = pop(instruction)
                 left = pop(instruction)
                 if opcode is Opcode.ADD and type(left) is type(right) is str:
+                    if len(left) + len(right) > self.max_string_length:
+                        raise fault(
+                            f"String length limit ({self.max_string_length}) exceeded.",
+                            instruction,
+                        )
                     push(left + right, instruction)
                 else:
                     if type(left) not in (int, float) or type(left) is not type(right):
@@ -199,6 +239,20 @@ class VirtualMachine:
                             f"{opcode.value} requires matching numeric operands.",
                             instruction,
                         )
+                    if type(left) is int:
+                        left_bits = left.bit_length()
+                        right_bits = right.bit_length()
+                        if opcode in (Opcode.ADD, Opcode.SUBTRACT):
+                            estimated_bits = max(left_bits, right_bits) + 1
+                        elif opcode is Opcode.MULTIPLY and left and right:
+                            estimated_bits = left_bits + right_bits
+                        else:
+                            estimated_bits = max(left_bits, right_bits)
+                        if estimated_bits > self.max_integer_bits:
+                            raise fault(
+                                f"Integer bit limit ({self.max_integer_bits}) exceeded.",
+                                instruction,
+                            )
                     if opcode is Opcode.ADD:
                         value = left + right
                     elif opcode is Opcode.SUBTRACT:
@@ -208,7 +262,10 @@ class VirtualMachine:
                     elif opcode is Opcode.DIVIDE:
                         if right == 0:
                             raise fault("Division by zero.", instruction)
-                        value = left / right
+                        try:
+                            value = left / right
+                        except OverflowError:
+                            raise fault("Numeric result is outside the supported range.", instruction) from None
                     else:
                         if type(left) is not int:
                             raise fault("MODULO requires integer operands.", instruction)
@@ -264,7 +321,14 @@ class VirtualMachine:
                     )
                 push((left and right) if opcode is Opcode.AND else (left or right), instruction)
             elif opcode is Opcode.PRINT:
-                output.append(format_value(pop(instruction)))
+                rendered = format_value(pop(instruction))
+                if output_chars + len(rendered) > self.max_output_chars:
+                    raise fault(
+                        f"Captured output limit ({self.max_output_chars} characters) exceeded.",
+                        instruction,
+                    )
+                output.append(rendered)
+                output_chars += len(rendered)
             elif opcode is Opcode.JUMP:
                 next_ip = instruction.operand
             elif opcode is Opcode.JUMP_IF_FALSE:

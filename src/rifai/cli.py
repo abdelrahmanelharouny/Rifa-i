@@ -118,33 +118,38 @@ def _run_check_command(file_path: Path) -> int:
     return 0
 
 
-def _compile_source_file(file_path: Path):
+def _compile_source_file(file_path: Path, *, optimize: bool = True):
     source = _read_source(file_path)
     if source is None:
-        return None
-    result = Compiler().compile(source, source_name=str(file_path))
+        return None, None
+    result = Compiler(optimize=optimize).compile(source, source_name=str(file_path))
     if not result.is_success:
         _print_diagnostics(result.diagnostics, file_path)
-        return None
-    return result.module
+        return None, None
+    return result.module, result.optimization
 
 
-def _run_compile_command(file_path: Path, output_path: Path | None) -> int:
+def _run_compile_command(
+    file_path: Path,
+    output_path: Path | None,
+    *,
+    optimize: bool = True,
+) -> int:
     if file_path.suffix.lower() != ".rif":
         print(f"[io] Expected a .rif source file, got: {file_path}", file=sys.stderr)
         return 1
-    module = _compile_source_file(file_path)
+    module, stats = _compile_source_file(file_path, optimize=optimize)
     if module is None:
+        return 1
+    validation = BytecodeVerifier().verify(module)
+    if not validation.is_valid:
+        _print_diagnostics(validation.diagnostics, file_path)
         return 1
     target = output_path or file_path.with_suffix(".rbc")
     try:
         BytecodeSerializer.write(module, target)
     except (OSError, BytecodeFormatError) as exc:
         print(f"[io] Could not write {target}: {exc}", file=sys.stderr)
-        return 1
-    validation = BytecodeVerifier().verify(module)
-    if not validation.is_valid:
-        _print_diagnostics(validation.diagnostics, file_path)
         return 1
     print(f"Compilation succeeded: {file_path} -> {target}")
     print(
@@ -153,6 +158,13 @@ def _run_compile_command(file_path: Path, output_path: Path | None) -> int:
         f"{len(module.functions)} function(s), "
         f"{len(module.constants)} constant(s)."
     )
+    if stats is not None:
+        print(
+            f"Optimization: {stats.original_instruction_count} -> "
+            f"{stats.optimized_instruction_count} instruction(s), "
+            f"{stats.folded_expressions} expression(s) folded, "
+            f"{stats.constants_before} -> {stats.constants_after} constant(s)."
+        )
     return 0
 
 
@@ -190,7 +202,7 @@ def _run_vm_command(file_path: Path) -> int:
     return _execute_module(module, file_path)
 
 
-def _run_command(file_path: Path) -> int:
+def _run_command(file_path: Path, *, optimize: bool = True) -> int:
     if file_path.suffix.lower() == ".rbc":
         module = _load_bytecode(file_path)
         if module is None:
@@ -202,7 +214,7 @@ def _run_command(file_path: Path) -> int:
             file=sys.stderr,
         )
         return 1
-    module = _compile_source_file(file_path)
+    module, _ = _compile_source_file(file_path, optimize=optimize)
     if module is None:
         return 1
     validation = BytecodeVerifier().verify(module)
@@ -254,6 +266,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="Output .rbc path (defaults to the source path with a .rbc suffix).",
     )
+    compile_parser.add_argument(
+        "--no-optimize",
+        action="store_true",
+        help="Disable bytecode optimization for debugging or benchmarking.",
+    )
 
     run_parser = subparsers.add_parser(
         "run",
@@ -263,6 +280,11 @@ def build_parser() -> argparse.ArgumentParser:
         "file",
         type=Path,
         help="Path to a .rif source file or .rbc bytecode file.",
+    )
+    run_parser.add_argument(
+        "--no-optimize",
+        action="store_true",
+        help="Disable optimization when the input is a .rif source file.",
     )
 
     disasm_parser = subparsers.add_parser(
@@ -285,9 +307,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(list(argv) if argv is not None else None)
 
     if args.command == "compile":
-        return _run_compile_command(args.file, args.output)
+        return _run_compile_command(
+            args.file,
+            args.output,
+            optimize=not args.no_optimize,
+        )
     if args.command == "run":
-        return _run_command(args.file)
+        return _run_command(args.file, optimize=not args.no_optimize)
 
     commands = {
         "tokens": _run_tokens_command,

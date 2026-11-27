@@ -90,9 +90,17 @@ The verifier validates the main chunk and every function chunk:
 - No reachable stack underflow or inconsistent stack depth at control-flow merge points.
 - No reachable instruction path falling beyond the end of its chunk.
 - An empty operand stack at main HALT.
+- Valid source-map types and coordinates.
+- Structural caps on constant count, function count, instruction count, local slots, and constant-string size.
 
-Runtime checks remain necessary for dynamic value types, uninitialized locals, undefined globals, zero division, finite floating-point results, and execution/stack/call-depth limits.
+Runtime checks remain necessary for dynamic value types, uninitialized locals, undefined globals, zero division, finite floating-point results, and execution/stack/call-depth, integer-size, string-size, and captured-output limits.
 
-## 5. Compatibility and Versioning
+## 5. Compiler Optimization
 
-Version 1 modules remain readable and executable if they use the original main-chunk instruction set. Version 2 adds CALL, RETURN, and the function table. The serializer writes version 2 by default. Any future incompatible change must increment the format version and define an explicit compatibility policy.
+The compiler optionally runs a conservative optimization pass on the generated module (enabled by default). It folds pure constant unary/binary operations, removes unreferenced constants, deduplicates constants by exact type and value, and removes the neutral DUP/POP pair. The pass is applied independently to main and function chunks.
+
+The optimizer compacts folded expressions and no-op pairs, remapping absolute jump targets to the new instruction indices. It refuses to fold any range entered by a jump at an interior instruction, and preserves DUP/POP pairs targeted by jumps. Operations that can fail at runtime, such as division or modulo by zero, are not folded. Expressions outside compile-time folding bounds remain in bytecode. Optimization can be disabled for debugging or benchmarking using the CLI --no-optimize flag.
+
+## 6. Compatibility and Versioning
+
+Version 1 modules remain readable and executable if they use the original main-chunk instruction set. Version 2 adds CALL, RETURN, and the function table. The serializer writes version 2 by default. Phase 5 does not change the bytecode wire format; any future incompatible change must increment the format version and define an explicit compatibility policy.

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from rifai.bytecode.codegen import CodeGenerator
 from rifai.bytecode.module import BytecodeModule
+from rifai.bytecode.optimizer import BytecodeOptimizer, OptimizationStats
 from rifai.bytecode.verifier import BytecodeVerifier
 from rifai.errors.diagnostics import Diagnostic
 from rifai.frontend.lexer import Lexer
@@ -19,6 +20,7 @@ class CompilationResult:
 
     module: BytecodeModule | None
     diagnostics: tuple[Diagnostic, ...]
+    optimization: OptimizationStats | None = None
 
     @property
     def is_success(self) -> bool:
@@ -26,7 +28,14 @@ class CompilationResult:
 
 
 class Compiler:
-    """Compile Rifa'i source text into a verified bytecode module."""
+    """Compile Rifa'i source text into verified bytecode.
+
+    Optimization is enabled by default. Use Compiler(optimize=False) to obtain
+    the direct code-generator output for debugging and performance comparisons.
+    """
+
+    def __init__(self, *, optimize: bool = True) -> None:
+        self.optimize = optimize
 
     def compile(
         self,
@@ -54,7 +63,14 @@ class Compiler:
         if not generation.is_success or generation.module is None:
             return CompilationResult(None, generation.diagnostics)
 
-        validation = BytecodeVerifier().verify(generation.module)
+        module = generation.module
+        optimization: OptimizationStats | None = None
+        if self.optimize:
+            optimized = BytecodeOptimizer().optimize(module)
+            module = optimized.module
+            optimization = optimized.stats
+
+        validation = BytecodeVerifier().verify(module)
         if not validation.is_valid:
-            return CompilationResult(None, validation.diagnostics)
-        return CompilationResult(generation.module, ())
+            return CompilationResult(None, validation.diagnostics, optimization)
+        return CompilationResult(module, (), optimization)

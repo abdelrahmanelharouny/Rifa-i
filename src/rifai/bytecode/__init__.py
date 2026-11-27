@@ -3,7 +3,8 @@
 from rifai.bytecode.cfg import BasicBlock, ControlFlowGraph, analyze_module_control_flow, build_control_flow_graph
 from rifai.bytecode.chunk import BytecodeFunction, CodeChunk
 from rifai.bytecode.codegen import CodeGenerationResult, CodeGenerator
-from rifai.bytecode.dataflow import DataFlowResult, DataFlowStats, optimize_module_dataflow\nfrom rifai.bytecode.disassembler import disassemble
+from rifai.bytecode.dataflow import DataFlowResult, DataFlowStats, optimize_module_dataflow
+from rifai.bytecode.disassembler import disassemble
 from rifai.bytecode.instructions import Instruction, Opcode, SourceLocation
 from rifai.bytecode.module import (
     BytecodeDebugInfo,
@@ -29,7 +30,10 @@ __all__ = [
     "ControlFlowGraph",
     "analyze_module_control_flow",
     "build_control_flow_graph",
-    "DataFlowResult",\n    "DataFlowStats",\n    "optimize_module_dataflow",\n    "BytecodeDebugInfo",
+    "DataFlowResult",
+    "DataFlowStats",
+    "optimize_module_dataflow",
+    "BytecodeDebugInfo",
     "BytecodeDebugLocal",
     "BytecodeFormatError",
     "BytecodeFunction",

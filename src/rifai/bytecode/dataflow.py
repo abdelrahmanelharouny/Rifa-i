@@ -79,6 +79,15 @@ def _same_value(left: object, right: object) -> bool:
     return type(left) is type(right) and left == right
 
 
+def _state_equal(left: State, right: State) -> bool:
+    return (
+        len(left[0]) == len(right[0])
+        and len(left[1]) == len(right[1])
+        and all(key in right[0] and _same_value(value, right[0][key]) for key, value in left[0].items())
+        and all(key in right[1] and _same_value(value, right[1][key]) for key, value in left[1].items())
+    )
+
+
 def _join_states(states: list[State]) -> State:
     if not states:
         return {}, {}
@@ -277,7 +286,8 @@ def _analyze_chunk(
                 constants, functions, return_type,
             )
         outgoing: State = (locals_in, globals_in)
-        if out_states.get(block_id) != outgoing:
+        previous = out_states.get(block_id)
+        if previous is None or not _state_equal(previous, outgoing):
             out_states[block_id] = (dict(locals_in), dict(globals_in))
             for successor in block.successors:
                 if successor in reachable and successor not in queued:

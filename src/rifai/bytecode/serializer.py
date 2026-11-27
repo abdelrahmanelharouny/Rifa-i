@@ -14,6 +14,8 @@ from rifai.bytecode.module import (
     BytecodeDebugInfo,
     BytecodeDebugLocal,
     BytecodeModule,
+    COLLECTIONS_FORMAT_VERSION,
+    DEBUG_INFO_FORMAT_VERSION,
     FORMAT_VERSION,
     FUNCTIONS_FORMAT_VERSION,
     LEGACY_FORMAT_VERSION,
@@ -210,7 +212,7 @@ def _debug_info_to_json(info: BytecodeDebugInfo | None) -> dict[str, object] | N
                 or symbol.slot in seen_slots
                 or not isinstance(symbol.name, str) or not symbol.name
                 or not isinstance(symbol.type_name, str)
-                or symbol.type_name not in {"int", "float", "bool", "string"}
+                or symbol.type_name not in {"int", "float", "bool", "string", "int[]", "float[]", "bool[]", "string[]"}
             ):
                 raise BytecodeFormatError("Invalid or duplicate debug local-symbol entry.")
             seen_slots.add(symbol.slot)
@@ -266,11 +268,11 @@ def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
 
 
 class BytecodeSerializer:
-    """Encode and decode bytecode versions 1, 2, and 3.
+    """Encode and decode bytecode versions 1 through 4.
 
-    Version 1 stores a main chunk, version 2 adds function chunks, and version
-    3 adds optional embedded source and local-symbol metadata. Older versions
-    remain readable and can still be executed.
+    Version 1 stores a main chunk, version 2 adds function chunks, version 3
+    adds optional embedded debug metadata, and version 4 adds typed-array
+    instructions. Older versions remain readable and executable.
     """
 
     @staticmethod
@@ -278,15 +280,16 @@ class BytecodeSerializer:
         if not isinstance(module, BytecodeModule):
             raise TypeError("module must be a BytecodeModule.")
         if type(module.format_version) is not int or module.format_version not in (
-            LEGACY_FORMAT_VERSION, FUNCTIONS_FORMAT_VERSION, FORMAT_VERSION
+            LEGACY_FORMAT_VERSION, FUNCTIONS_FORMAT_VERSION,
+            DEBUG_INFO_FORMAT_VERSION, COLLECTIONS_FORMAT_VERSION
         ):
             raise BytecodeFormatError(
                 f"Cannot write bytecode version {module.format_version}; "
-                "supported versions are 1, 2, and 3."
+                "supported versions are 1, 2, 3, and 4."
             )
         if module.format_version < FUNCTIONS_FORMAT_VERSION and module.functions:
             raise BytecodeFormatError("Version 1 bytecode cannot contain function chunks.")
-        if module.format_version < FORMAT_VERSION and module.debug_info is not None:
+        if module.format_version < DEBUG_INFO_FORMAT_VERSION and module.debug_info is not None:
             raise BytecodeFormatError("Embedded debug metadata requires bytecode version 3.")
         if any(not is_constant(value) for value in module.constants):
             raise BytecodeFormatError("Module contains an unsupported constant.")
@@ -303,7 +306,7 @@ class BytecodeSerializer:
                 payload["functions"] = [
                     _function_to_json(function) for function in module.functions
                 ]
-            if module.format_version >= FORMAT_VERSION:
+            if module.format_version >= DEBUG_INFO_FORMAT_VERSION:
                 payload["debug_info"] = _debug_info_to_json(module.debug_info)
             encoded = json.dumps(
                 payload,
@@ -344,16 +347,17 @@ class BytecodeSerializer:
             raise BytecodeFormatError("Bytecode module has an invalid top-level structure.")
         version = payload.get("format_version")
         if type(version) is not int or version not in (
-            LEGACY_FORMAT_VERSION, FUNCTIONS_FORMAT_VERSION, FORMAT_VERSION
+            LEGACY_FORMAT_VERSION, FUNCTIONS_FORMAT_VERSION,
+            DEBUG_INFO_FORMAT_VERSION, COLLECTIONS_FORMAT_VERSION
         ):
             raise BytecodeFormatError(
-                f"Unsupported bytecode version {version!r}; supported versions are 1, 2, and 3."
+                f"Unsupported bytecode version {version!r}; supported versions are 1, 2, 3, and 4."
             )
 
         expected_fields = {"magic", "format_version", "source_name", "constants", "main"}
         if version >= FUNCTIONS_FORMAT_VERSION:
             expected_fields.add("functions")
-        if version >= FORMAT_VERSION:
+        if version >= DEBUG_INFO_FORMAT_VERSION:
             expected_fields.add("debug_info")
         if set(payload) != expected_fields:
             raise BytecodeFormatError("Bytecode module has an invalid top-level structure.")

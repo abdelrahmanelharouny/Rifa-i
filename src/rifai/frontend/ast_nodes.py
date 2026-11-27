@@ -118,6 +118,16 @@ class AssignmentStatement(Statement):
 
 
 @dataclass(frozen=True, slots=True)
+class IndexAssignmentStatement(Statement):
+    """Assignment to one element of a typed array."""
+
+    array: Expression
+    index: Expression
+    value: Expression
+    span: SourceSpan
+
+
+@dataclass(frozen=True, slots=True)
 class IfStatement(Statement):
     """Conditional branch statement with optional else branch."""
 
@@ -217,6 +227,23 @@ class FunctionCallExpression(Expression):
     span: SourceSpan
 
 
+@dataclass(frozen=True, slots=True)
+class ArrayLiteralExpression(Expression):
+    """Homogeneous typed array literal."""
+
+    elements: tuple[Expression, ...]
+    span: SourceSpan
+
+
+@dataclass(frozen=True, slots=True)
+class IndexExpression(Expression):
+    """Array element lookup."""
+
+    array: Expression
+    index: Expression
+    span: SourceSpan
+
+
 def _node_label(node: ASTNode) -> str:
     if isinstance(node, Program):
         return "Program"
@@ -229,6 +256,12 @@ def _node_label(node: ASTNode) -> str:
         return f"VariableDeclaration {node.name}: {node.type_annotation.name}"
     if isinstance(node, AssignmentStatement):
         return f"AssignmentStatement {node.name} ="
+    if isinstance(node, IndexAssignmentStatement):
+        return "IndexAssignmentStatement"
+    if isinstance(node, ArrayLiteralExpression):
+        return f"ArrayLiteral[{len(node.elements)}]"
+    if isinstance(node, IndexExpression):
+        return "IndexExpression"
     if isinstance(node, BlockStatement):
         return "BlockStatement"
     if isinstance(node, IfStatement):
@@ -265,6 +298,12 @@ def _node_children(node: ASTNode) -> list[tuple[str | None, ASTNode]]:
         return [("initializer", node.initializer)]
     if isinstance(node, AssignmentStatement):
         return [("value", node.value)]
+    if isinstance(node, IndexAssignmentStatement):
+        return [("array", node.array), ("index", node.index), ("value", node.value)]
+    if isinstance(node, ArrayLiteralExpression):
+        return [(f"element[{i}]", item) for i, item in enumerate(node.elements)]
+    if isinstance(node, IndexExpression):
+        return [("array", node.array), ("index", node.index)]
     if isinstance(node, BlockStatement):
         return [(None, stmt) for stmt in node.statements]
     if isinstance(node, IfStatement):

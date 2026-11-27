@@ -2,7 +2,7 @@
   "name": "rifai-language",
   "displayName": "Rifa'i Language Support",
   "description": "Language support, Language Server, and source debugger for the Rifa'i programming language.",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "publisher": "abdelrahmanelharouny",
   "license": "MIT",
   "engines": { "vscode": "^1.85.0" },

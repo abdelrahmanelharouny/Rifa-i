@@ -1,5 +1,5 @@
 (* ============================================================================
- * Rifa'i Programming Language — Formal EBNF Grammar (Version 1.0)
+ * Rifa'i Programming Language — Formal EBNF Grammar (Version 2.0)
  * ============================================================================
  *
  * Notation (ISO/IEC 14977-style EBNF):
@@ -13,7 +13,7 @@
  *   UPPERCASE lexical token produced by the Lexer
  *
  * Operator Precedence (highest to lowest):
- *   1. Primary & function calls : literals, identifiers, fn_call, "(" expr ")"
+ *   1. Primary & postfix        : literals, identifiers, fn_call, array literals, indexing
  *   2. Unary (right-assoc)      : "-", "not"
  *   3. Multiplicative (left)    : "*", "/", "%"
  *   4. Additive (left)          : "+", "-"
@@ -46,7 +46,9 @@ param_list     ::= param ( "," param )* ;
 
 param          ::= IDENTIFIER ":" type_spec ;
 
-type_spec      ::= "int"
+type_spec      ::= primitive_type ( "[" "]" )? ;
+
+primitive_type ::= "int"
                  | "float"
                  | "bool"
                  | "string" ;
@@ -70,7 +72,8 @@ block          ::= "{" statement* "}" ;
 
 var_decl       ::= "let" IDENTIFIER ":" type_spec "=" expression ";" ;
 
-assign_stmt    ::= IDENTIFIER "=" expression ";" ;
+assign_stmt    ::= IDENTIFIER "=" expression ";"
+                 | postfix_expr "=" expression ";" ;
 
 if_stmt        ::= "if" "(" expression ")" block ( "else" ( if_stmt | block ) )? ;
 
@@ -100,7 +103,7 @@ term           ::= factor ( ( "+" | "-" ) factor )* ;
 factor         ::= unary ( ( "*" | "/" | "%" ) unary )* ;
 
 unary          ::= ( "-" | "not" ) unary
-                 | primary ;
+                 | postfix_expr ;
 
 primary        ::= INTEGER
                  | FLOAT
@@ -109,7 +112,12 @@ primary        ::= INTEGER
                  | "false"
                  | fn_call
                  | IDENTIFIER
-                 | "(" expression ")" ;
+                 | "(" expression ")"
+                 | array_literal ;
+
+postfix_expr   ::= primary ( "[" expression "]" )* ;
+
+array_literal  ::= "[" ( expression ( "," expression )* )? "]" ;
 
 fn_call        ::= IDENTIFIER "(" arg_list? ")" ;
 

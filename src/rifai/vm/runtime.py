@@ -1,4 +1,4 @@
-"""Runtime result and exception models for the Rifa'i VM."""
+"""Runtime values, result models, and VM exception types for Rifa'i."""
 
 from __future__ import annotations
 
@@ -9,14 +9,25 @@ from typing import Mapping
 from rifai.errors.diagnostics import Diagnostic, DiagnosticPhase
 
 
+@dataclass(slots=True)
+class ArrayValue:
+    """Mutable homogeneous array allocated by the Rifa'i VM."""
+
+    element_type: str
+    items: list[int | float | bool | str]
+
+
+RuntimeValue = int | float | bool | str | ArrayValue
+
+
 @dataclass(frozen=True, slots=True)
 class ExecutionResult:
     """Captured output and final observable state from one VM execution."""
 
     output: tuple[str, ...]
-    globals: Mapping[str, int | float | bool | str]
+    globals: Mapping[str, RuntimeValue]
     instructions_executed: int
-    final_stack: tuple[int | float | bool | str, ...]
+    final_stack: tuple[RuntimeValue, ...]
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "output", tuple(self.output))
@@ -45,8 +56,10 @@ class BytecodeValidationError(RuntimeError):
         self.diagnostics = diagnostics
 
 
-def format_value(value: int | float | bool | str) -> str:
-    """Format a runtime value using Rifa'i's user-facing representation."""
+def format_value(value: RuntimeValue) -> str:
+    """Format primitive values and nested VM arrays for user-facing output."""
     if type(value) is bool:
         return "true" if value else "false"
+    if isinstance(value, ArrayValue):
+        return "[" + ", ".join(format_value(item) for item in value.items) + "]"
     return str(value)

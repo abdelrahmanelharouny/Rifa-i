@@ -7,6 +7,7 @@ from typing import Final
 
 from rifai.errors.diagnostics import Diagnostic, DiagnosticPhase
 from rifai.frontend.ast_nodes import (
+    ArrayLiteralExpression,
     AssignmentStatement,
     BinaryExpression,
     BlockStatement,
@@ -15,6 +16,8 @@ from rifai.frontend.ast_nodes import (
     FunctionCallExpression,
     FunctionDeclaration,
     GroupingExpression,
+    IndexAssignmentStatement,
+    IndexExpression,
     IfStatement,
     LiteralExpression,
     PrintStatement,
@@ -31,6 +34,9 @@ from rifai.frontend.symbol_table import FunctionSymbol, SymbolTable, VariableSym
 from rifai.frontend.tokens import TokenType
 from rifai.frontend.types import (
     RifaiType,
+    array_element_type,
+    array_type_for,
+    is_array_type,
     is_error_type,
     is_numeric,
     is_value_type,
@@ -45,6 +51,8 @@ _RELATIONAL_OPS: Final[frozenset[TokenType]] = frozenset(
         TokenType.GREATER_EQUAL,
     }
 )
+
+_BUILTIN_FUNCTIONS: Final[frozenset[str]] = frozenset({"len", "push", "pop"})
 
 _EQUALITY_OPS: Final[frozenset[TokenType]] = frozenset(
     {
@@ -153,6 +161,11 @@ class SemanticAnalyzer:
             params: list[VariableSymbol] = []
             seen_params: set[str] = set()
             for param in decl.params:
+                if param.name in _BUILTIN_FUNCTIONS:
+                    self._error(
+                        SourceSpan.from_token(param.name_token),
+                        f"'{param.name}' is a reserved standard-library function name.",
+                    )
                 param_type = type_from_name(param.type_annotation.name)
                 if param_type is None:
                     self._error(
@@ -185,6 +198,13 @@ class SemanticAnalyzer:
                         scope_depth=1,
                     )
                 )
+
+            if decl.name in _BUILTIN_FUNCTIONS:
+                self._error(
+                    SourceSpan.from_token(decl.name_token),
+                    f"'{decl.name}' is a reserved standard-library function name.",
+                )
+                continue
 
             func_symbol = FunctionSymbol(
                 name=decl.name,
@@ -239,6 +259,8 @@ class SemanticAnalyzer:
             self._analyze_variable_declaration(stmt)
         elif isinstance(stmt, AssignmentStatement):
             self._analyze_assignment(stmt)
+        elif isinstance(stmt, IndexAssignmentStatement):
+            self._analyze_index_assignment(stmt)
         elif isinstance(stmt, BlockStatement):
             self._analyze_block(stmt)
         elif isinstance(stmt, IfStatement):
@@ -269,7 +291,16 @@ class SemanticAnalyzer:
             )
             declared_type = RifaiType.ERROR
 
-        init_type = self._analyze_expression(stmt.initializer)
+        if stmt.name in _BUILTIN_FUNCTIONS:
+            self._error(
+                SourceSpan.from_token(stmt.name_token),
+                f"'{stmt.name}' is a reserved standard-library function name.",
+            )
+
+        init_type = self._analyze_expression(
+            stmt.initializer,
+            expected_type=declared_type if is_array_type(declared_type) else None,
+        )
         if (
             not is_error_type(declared_type)
             and not is_error_type(init_type)
@@ -307,7 +338,6 @@ class SemanticAnalyzer:
             self._variable_bindings[id(stmt)] = var_symbol
 
     def _analyze_assignment(self, stmt: AssignmentStatement) -> None:
-        value_type = self._analyze_expression(stmt.value)
         symbol = self._symbol_table.resolve(stmt.name)
         if symbol is None:
             self._error(
@@ -323,6 +353,10 @@ class SemanticAnalyzer:
             return
 
         self._variable_bindings[id(stmt)] = symbol
+        value_type = self._analyze_expression(
+            stmt.value,
+            expected_type=symbol.rifai_type if is_array_type(symbol.rifai_type) else None,
+        )
         if (
             not is_error_type(symbol.rifai_type)
             and not is_error_type(value_type)
@@ -332,6 +366,34 @@ class SemanticAnalyzer:
                 stmt.value.span,
                 f"Cannot assign value of type '{value_type.value}' to variable "
                 f"'{stmt.name}' of type '{symbol.rifai_type.value}'.",
+            )
+
+    def _analyze_index_assignment(self, stmt: IndexAssignmentStatement) -> None:
+        array_type = self._analyze_expression(stmt.array)
+        index_type = self._analyze_expression(stmt.index)
+        element_type = array_element_type(array_type)
+        if element_type is None and not is_error_type(array_type):
+            self._error(
+                stmt.array.span,
+                f"Indexed assignment requires an array, got '{array_type.value}'.",
+            )
+        if not is_error_type(index_type) and index_type is not RifaiType.INT:
+            self._error(
+                stmt.index.span,
+                f"Array index must have type 'int', got '{index_type.value}'.",
+            )
+        value_type = self._analyze_expression(
+            stmt.value,
+            expected_type=element_type,
+        )
+        if (
+            element_type is not None
+            and not is_error_type(value_type)
+            and value_type is not element_type
+        ):
+            self._error(
+                stmt.value.span,
+                f"Array element expects '{element_type.value}', got '{value_type.value}'.",
             )
 
     def _analyze_block(self, block: BlockStatement) -> None:
@@ -392,7 +454,10 @@ class SemanticAnalyzer:
             )
             return
 
-        actual = self._analyze_expression(stmt.value)
+        actual = self._analyze_expression(
+            stmt.value,
+            expected_type=expected if is_array_type(expected) else None,
+        )
         if (
             not is_error_type(expected)
             and not is_error_type(actual)
@@ -413,7 +478,12 @@ class SemanticAnalyzer:
 
     # --- Expressions ---------------------------------------------------------
 
-    def _analyze_expression(self, expr: Expression) -> RifaiType:
+    def _analyze_expression(
+        self,
+        expr: Expression,
+        *,
+        expected_type: RifaiType | None = None,
+    ) -> RifaiType:
         result_type: RifaiType
 
         if isinstance(expr, LiteralExpression):
@@ -421,7 +491,27 @@ class SemanticAnalyzer:
         elif isinstance(expr, VariableExpression):
             result_type = self._analyze_variable_expr(expr)
         elif isinstance(expr, GroupingExpression):
-            result_type = self._analyze_expression(expr.expression)
+            result_type = self._analyze_expression(
+                expr.expression,
+                expected_type=expected_type,
+            )
+        elif isinstance(expr, ArrayLiteralExpression):
+            result_type = self._analyze_array_literal(expr, expected_type)
+        elif isinstance(expr, IndexExpression):
+            array_type = self._analyze_expression(expr.array)
+            index_type = self._analyze_expression(expr.index)
+            element_type = array_element_type(array_type)
+            if element_type is None and not is_error_type(array_type):
+                self._error(
+                    expr.array.span,
+                    f"Indexing requires an array, got '{array_type.value}'.",
+                )
+            if not is_error_type(index_type) and index_type is not RifaiType.INT:
+                self._error(
+                    expr.index.span,
+                    f"Array index must have type 'int', got '{index_type.value}'.",
+                )
+            result_type = element_type or RifaiType.ERROR
         elif isinstance(expr, UnaryExpression):
             result_type = self._analyze_unary(expr)
         elif isinstance(expr, BinaryExpression):
@@ -432,6 +522,49 @@ class SemanticAnalyzer:
             result_type = RifaiType.ERROR
 
         self._expression_types[id(expr)] = result_type
+        return result_type
+
+    def _analyze_array_literal(
+        self,
+        expr: ArrayLiteralExpression,
+        expected_type: RifaiType | None,
+    ) -> RifaiType:
+        if not expr.elements:
+            if expected_type is not None and is_array_type(expected_type):
+                return expected_type
+            self._error(
+                expr.span,
+                "An empty array literal requires an explicit array type annotation.",
+            )
+            return RifaiType.ERROR
+
+        element_types = [self._analyze_expression(item) for item in expr.elements]
+        first_type = element_types[0]
+        inferred_array = array_type_for(first_type)
+        if inferred_array is None:
+            self._error(
+                expr.elements[0].span,
+                "Arrays can contain only primitive int, float, bool, or string values.",
+            )
+            return RifaiType.ERROR
+
+        result_type = expected_type if expected_type is not None and is_array_type(expected_type) else inferred_array
+        expected_element = array_element_type(result_type)
+        if expected_type is not None and not is_error_type(expected_type) and not is_array_type(expected_type):
+            self._error(
+                expr.span,
+                f"Array literal cannot initialize a value of type '{expected_type.value}'.",
+            )
+        for item, actual_type in zip(expr.elements, element_types):
+            if (
+                expected_element is not None
+                and not is_error_type(actual_type)
+                and actual_type is not expected_element
+            ):
+                self._error(
+                    item.span,
+                    f"Array elements must all have type '{expected_element.value}', got '{actual_type.value}'.",
+                )
         return result_type
 
     @staticmethod
@@ -569,14 +702,73 @@ class SemanticAnalyzer:
         return RifaiType.ERROR
 
     def _analyze_call(self, expr: FunctionCallExpression) -> RifaiType:
-        arg_types = [self._analyze_expression(arg) for arg in expr.arguments]
-        symbol = self._symbol_table.resolve(expr.callee)
+        if expr.callee == "len":
+            argument_types = [
+                self._analyze_expression(arg) for arg in expr.arguments
+            ]
+            if len(expr.arguments) != 1:
+                self._error(expr.span, "'len' expects exactly one argument.")
+                return RifaiType.ERROR
+            argument_type = argument_types[0]
+            if argument_type is RifaiType.STRING or is_array_type(argument_type):
+                return RifaiType.INT
+            if not is_error_type(argument_type):
+                self._error(
+                    expr.arguments[0].span,
+                    f"'len' expects a string or array, got '{argument_type.value}'.",
+                )
+            return RifaiType.ERROR
 
+        if expr.callee == "push":
+            argument_types = [
+                self._analyze_expression(arg) for arg in expr.arguments
+            ]
+            if len(expr.arguments) != 2:
+                self._error(expr.span, "'push' expects an array and one element value.")
+                return RifaiType.ERROR
+            element_type = array_element_type(argument_types[0])
+            if element_type is None:
+                if not is_error_type(argument_types[0]):
+                    self._error(
+                        expr.arguments[0].span,
+                        f"'push' expects an array as its first argument, got '{argument_types[0].value}'.",
+                    )
+                return RifaiType.ERROR
+            if (
+                not is_error_type(argument_types[1])
+                and argument_types[1] is not element_type
+            ):
+                self._error(
+                    expr.arguments[1].span,
+                    f"'push' expects an element of type '{element_type.value}', got '{argument_types[1].value}'.",
+                )
+            return RifaiType.VOID
+
+        if expr.callee == "pop":
+            argument_types = [
+                self._analyze_expression(arg) for arg in expr.arguments
+            ]
+            if len(expr.arguments) != 1:
+                self._error(expr.span, "'pop' expects exactly one array argument.")
+                return RifaiType.ERROR
+            element_type = array_element_type(argument_types[0])
+            if element_type is None:
+                if not is_error_type(argument_types[0]):
+                    self._error(
+                        expr.arguments[0].span,
+                        f"'pop' expects an array, got '{argument_types[0].value}'.",
+                    )
+                return RifaiType.ERROR
+            return element_type
+
+        symbol = self._symbol_table.resolve(expr.callee)
         if symbol is None:
             self._error(
                 SourceSpan.from_token(expr.callee_token),
                 f"Undefined function '{expr.callee}'.",
             )
+            for argument in expr.arguments:
+                self._analyze_expression(argument)
             return RifaiType.ERROR
 
         if not isinstance(symbol, FunctionSymbol):
@@ -584,32 +776,39 @@ class SemanticAnalyzer:
                 SourceSpan.from_token(expr.callee_token),
                 f"'{expr.callee}' is a variable and cannot be called as a function.",
             )
+            for argument in expr.arguments:
+                self._analyze_expression(argument)
             return RifaiType.ERROR
 
         self._function_bindings[id(expr)] = symbol
-
         if len(expr.arguments) != len(symbol.params):
             self._error(
                 expr.span,
                 f"Function '{expr.callee}' expects {len(symbol.params)} argument(s), "
                 f"got {len(expr.arguments)}.",
             )
-            return symbol.return_type
 
-        for index, (arg_node, arg_type, param_sym) in enumerate(
-            zip(expr.arguments, arg_types, symbol.params), start=1
-        ):
+        for index, arg_node in enumerate(expr.arguments):
+            expected = (
+                symbol.params[index].rifai_type
+                if index < len(symbol.params)
+                else None
+            )
+            arg_type = self._analyze_expression(
+                arg_node,
+                expected_type=expected if is_array_type(expected) else None,
+            )
             if (
-                not is_error_type(arg_type)
-                and not is_error_type(param_sym.rifai_type)
-                and arg_type is not param_sym.rifai_type
+                expected is not None
+                and not is_error_type(arg_type)
+                and not is_error_type(expected)
+                and arg_type is not expected
             ):
                 self._error(
                     arg_node.span,
-                    f"Argument {index} ('{param_sym.name}') of function '{expr.callee}' "
-                    f"expects '{param_sym.rifai_type.value}', got '{arg_type.value}'.",
+                    f"Argument {index + 1} of function '{expr.callee}' "
+                    f"expects '{expected.value}', got '{arg_type.value}'.",
                 )
-
         return symbol.return_type
 
     # --- Control-flow return analysis ----------------------------------------

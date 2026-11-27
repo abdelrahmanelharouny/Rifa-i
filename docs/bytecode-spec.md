@@ -20,8 +20,8 @@ Version 2 contains all version 1 fields plus:
 
 A function record contains:
 - `name`: unique non-empty function name
-- `parameter_types`: ordered array of int, float, bool, or string
-- `return_type`: one of int, float, bool, string, or void
+- `parameter_types`: ordered array of supported value types
+- `return_type`: one of supported value types or void
 - `chunk`: executable code chunk
 
 ### Version 3
@@ -35,7 +35,7 @@ The `debug_info` object contains:
 
 Debug metadata is optional for hand-authored bytecode, but compiler-produced source programs embed it by default. Embedded source text is limited to 8 Mi characters and the complete bytecode file is limited to 16 MiB. The verifier rejects unknown chunks, duplicate chunk entries, duplicate slots, invalid names/types, and slots outside their owning chunk. Metadata is informational and does not affect VM execution semantics.
 
-The serializer writes version 3 by default and retains v1/v2 writers for compatibility tooling. The reader accepts versions 1, 2, and 3 and rejects unsupported versions. Constants are tagged as int, float, bool, or string; non-finite floats are forbidden. JSON keys must be unique.
+The serializer writes version 4 by default and retains v1/v2/v3 read/write compatibility. Version 4 contains version 3's debug metadata and adds typed-array instructions. The reader accepts versions 1, 2, 3, and 4. Constants are tagged as int, float, bool, or string; non-finite floats are forbidden. JSON keys must be unique.
 
 ## 2. Code Chunks and Frames
 
@@ -47,7 +47,7 @@ A code chunk contains:
 
 For a function chunk, arity must equal the length of its parameter signature and local_count must be at least arity. The first arity slots hold parameters in declaration order. Other locals use the remaining zero-based slots.
 
-Version 1 modules contain only the main chunk. Version 2 and 3 modules contain one main chunk and zero or more function chunks.
+Version 1 modules contain only the main chunk. Version 2, 3, and 4 modules contain one main chunk and zero or more function chunks.
 
 ## 3. Instruction Encoding
 
@@ -83,7 +83,7 @@ Jump targets are absolute, zero-based instruction indices within the current chu
 | JUMP_IF_FALSE | instruction index | -1 | Pop bool and branch when false |
 | CALL | function name | -arity + returns-value | Invoke a function with arguments already on the stack |
 | RETURN | none | function terminal | Return the top value from value functions; void functions return no value |
-| HALT | none | 0 | End the main chunk |
+| ARRAY_NEW_INT / ARRAY_NEW_FLOAT / ARRAY_NEW_BOOL / ARRAY_NEW_STRING | element count | 1 - count | Pop count homogeneous primitive values and create a typed array |\n| ARRAY_GET | none | -1 | Pop an integer index and array; push the indexed element |\n| ARRAY_SET | none | -3 | Pop value, index, and array; mutate one element |\n| LENGTH | none | 0 | Replace a string or array with its length |\n| ARRAY_PUSH | none | -2 | Pop value and array; append the typed value |\n| ARRAY_POP | none | 0 | Pop an array and push its final element |\n| HALT | none | 0 | End the main chunk |
 
 +1 means a value is added to the stack; -1 means a value is removed; 0 means stack height is unchanged. CALL consumes exactly the callee's arity. It pushes one result for non-void functions and no result for void functions. RETURN is valid only in function chunks; HALT is valid only in the main chunk.
 
@@ -116,3 +116,12 @@ The optimizer compacts folded expressions and no-op pairs, remapping absolute ju
 ## 6. Compatibility and Versioning
 
 Version 1 modules remain readable and executable if they use the original main-chunk instruction set. Version 2 adds CALL, RETURN, and the function table. Version 3 adds optional embedded debug metadata without changing executable instructions. Existing v1/v2 modules remain supported; future incompatible instruction/container changes must increment the format version and define an explicit compatibility policy.
+
+
+## 7. Version 4 Typed Collections
+
+Version 4 introduces homogeneous one-dimensional arrays. ARRAY_NEW_INT, ARRAY_NEW_FLOAT, ARRAY_NEW_BOOL, and ARRAY_NEW_STRING encode the element type in the opcode and the element count in the integer operand. They consume count values in source order and push one array object.
+
+ARRAY_GET consumes array and index, then pushes the element. ARRAY_SET consumes array, index, and value, and performs an in-place mutation. LENGTH accepts a string or array and pushes an integer length. ARRAY_PUSH consumes array and value and appends the value. ARRAY_POP consumes an array and pushes its last element.
+
+Array values are mutable references with a fixed primitive element type. The VM validates runtime element type, zero-based index bounds, empty-pop behavior, and a configurable item-count cap. Array construction counts are verifier-bounded. Formats 1 through 3 cannot use these instructions; collection opcodes in older formats are rejected by the verifier.

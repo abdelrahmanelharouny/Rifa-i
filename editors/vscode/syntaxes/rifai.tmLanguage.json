@@ -2,20 +2,41 @@
   "scopeName": "source.rifai",
   "name": "Rifa'i",
   "patterns": [
-    { "include": "#comments" },
-    { "include": "#strings" },
-    { "include": "#numbers" },
-    { "include": "#function-declarations" },
-    { "include": "#function-calls" },
-    { "include": "#keywords" },
-    { "include": "#types" },
-    { "include": "#constants" },
-    { "include": "#operators" }
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#numbers"
+    },
+    {
+      "include": "#function-declarations"
+    },
+    {
+      "include": "#function-calls"
+    },
+    {
+      "include": "#keywords"
+    },
+    {
+      "include": "#types"
+    },
+    {
+      "include": "#constants"
+    },
+    {
+      "include": "#operators"
+    }
   ],
   "repository": {
     "comments": {
       "patterns": [
-        { "name": "comment.line.double-slash.rifai", "match": "//.*$" }
+        {
+          "name": "comment.line.double-slash.rifai",
+          "match": "//.*$"
+        }
       ]
     },
     "strings": {
@@ -23,29 +44,45 @@
       "begin": "\"",
       "end": "\"",
       "patterns": [
-        { "name": "constant.character.escape.rifai", "match": "\\\\(?:[\"\\\\ntr])" }
+        {
+          "name": "constant.character.escape.rifai",
+          "match": "\\\\(?:[\"\\\\ntr])"
+        }
       ]
     },
     "numbers": {
       "patterns": [
-        { "name": "constant.numeric.float.rifai", "match": "\\b[0-9]+\\.[0-9]+\\b" },
-        { "name": "constant.numeric.integer.rifai", "match": "\\b[0-9]+\\b" }
+        {
+          "name": "constant.numeric.float.rifai",
+          "match": "\\b[0-9]+\\.[0-9]+\\b"
+        },
+        {
+          "name": "constant.numeric.integer.rifai",
+          "match": "\\b[0-9]+\\b"
+        }
       ]
     },
     "function-declarations": {
       "name": "meta.function.rifai",
       "begin": "\\bfn\\s+([A-Za-z_][A-Za-z0-9_]*)",
-      "beginCaptures": { "1": { "name": "entity.name.function.rifai" } },
+      "beginCaptures": {
+        "1": {
+          "name": "entity.name.function.rifai"
+        }
+      },
       "end": "(?=\\{)"
     },
     "function-calls": {
       "patterns": [
-        { "name": "entity.name.function.call.rifai", "match": "\\b([A-Za-z_][A-Za-z0-9_]*)(?=\\s*\\()" }
+        {
+          "name": "entity.name.function.call.rifai",
+          "match": "\\b([A-Za-z_][A-Za-z0-9_]*)(?=\\s*\\()"
+        }
       ]
     },
     "keywords": {
       "name": "keyword.control.rifai",
-      "match": "\\b(?:fn|let|return|if|else|while|print|and|or|not)\\b"
+      "match": "\\\\b(?:fn|let|return|if|else|while|print|and|or|not|len|push|pop)\\\\b"
     },
     "types": {
       "name": "storage.type.rifai",
@@ -57,7 +94,7 @@
     },
     "operators": {
       "name": "keyword.operator.rifai",
-      "match": "->|==|!=|<=|>=|[+*/%<>=-]"
+      "match": "->|==|!=|<=|>=|[+*/%<>=-]|[\\\\[\\\\]]"
     }
   }
 }

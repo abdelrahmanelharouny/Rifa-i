@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from rifai.bytecode.instructions import Instruction
 from rifai.bytecode.module import BytecodeModule
 from rifai.vm.machine import InstructionSnapshot, VirtualMachine
-from rifai.vm.runtime import ExecutionResult
+from rifai.vm.runtime import ExecutionResult, format_value
 
 
 @dataclass(frozen=True, slots=True)
@@ -282,7 +282,7 @@ class InteractiveDebugger:
             if not item.initialized:
                 value = "<uninitialized>"
             else:
-                value = repr(item.value)
+                value = format_value(item.value)
             self.output_fn(
                 f"  {item.name}: {item.type_name} = {value} [slot {item.slot}]"
             )
@@ -293,7 +293,7 @@ class InteractiveDebugger:
             self.output_fn("  <empty>")
             return
         for index, value in enumerate(snapshot.operand_stack):
-            self.output_fn(f"  [{index}] {value!r}")
+            self.output_fn(f"  [{index}] {format_value(value)}")
 
     def _show_globals(self, snapshot: InstructionSnapshot) -> None:
         self.output_fn("Globals:")
@@ -301,7 +301,7 @@ class InteractiveDebugger:
             self.output_fn("  <empty>")
             return
         for name, value in snapshot.globals:
-            self.output_fn(f"  {name} = {value!r}")
+            self.output_fn(f"  {name} = {format_value(value)}")
 
     def _show_backtrace(self, snapshot: InstructionSnapshot) -> None:
         self.output_fn("Call stack (newest frame first):")

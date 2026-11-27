@@ -18,8 +18,8 @@ from rifai.frontend.tokens import Token, TokenType
 
 MAX_MESSAGE_BYTES = 16 *  1024 * 1024
 MAX_HEADER_BYTES = 8192
-KEYWORDS = ("fn", "let", "return", "if", "else", "while", "print", "true", "false", "and", "or", "not")
-TYPES = ("int", "float", "bool", "string", "void")
+KEYWORDS = ("fn", "let", "return", "if", "else", "while", "print", "true", "false", "and", "or", "not", "len", "push", "pop")
+TYPES = ("int", "float", "bool", "string", "int[]", "float[]", "bool[]", "string[]", "void")
 
 
 class ProtocolError(Exception):

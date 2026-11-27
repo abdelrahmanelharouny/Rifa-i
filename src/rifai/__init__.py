@@ -4,6 +4,8 @@ from rifai.bytecode import (
     BytecodeDebugInfo,
     BytecodeDebugLocal,
     BytecodeFunction,
+    COLLECTIONS_FORMAT_VERSION,
+    DEBUG_INFO_FORMAT_VERSION,
     BytecodeModule,
     BytecodeOptimizer,
     BytecodeSerializer,
@@ -25,6 +27,7 @@ from rifai.frontend.semantic import SemanticAnalyzer, SemanticResult
 from rifai.frontend.tokens import KEYWORDS, Token, TokenType
 from rifai.frontend.types import RifaiType
 from rifai.vm import (
+    ArrayValue,
     DebugFrameSnapshot,
     DebugLocalSnapshot,
     DebuggerResult,
@@ -35,11 +38,14 @@ from rifai.vm import (
     VMRuntimeError,
 )
 
-__version__ = "0.8.0"
+__version__ = "0.9.0"
 
 __all__ = [
     "BytecodeDebugInfo",
     "BytecodeDebugLocal",
+    "COLLECTIONS_FORMAT_VERSION",
+    "DEBUG_INFO_FORMAT_VERSION",
+    "ArrayValue",
     "BytecodeFunction",
     "BytecodeModule",
     "BytecodeOptimizer",

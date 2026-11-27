@@ -9,7 +9,9 @@ from rifai.bytecode.chunk import BytecodeFunction, CodeChunk
 
 LEGACY_FORMAT_VERSION = 1
 FUNCTIONS_FORMAT_VERSION = 2
-FORMAT_VERSION = 3
+DEBUG_INFO_FORMAT_VERSION = 3
+COLLECTIONS_FORMAT_VERSION = 4
+FORMAT_VERSION = COLLECTIONS_FORMAT_VERSION
 MAGIC = b"RIFAI-RBC\n"
 
 Constant = int | float | bool | str
@@ -37,7 +39,7 @@ class BytecodeDebugLocal:
 
 @dataclass(frozen=True, slots=True)
 class BytecodeDebugInfo:
-    """Optional source and local-symbol information embedded in an RBC v3 file."""
+    """Optional source and local-symbol information embedded in an RBC v3+ file."""
 
     source_text: str | None = None
     local_symbols: tuple[tuple[str, tuple[BytecodeDebugLocal, ...]], ...] = ()

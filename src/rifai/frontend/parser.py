@@ -8,6 +8,7 @@ from typing import Final
 
 from rifai.errors.diagnostics import Diagnostic, DiagnosticPhase
 from rifai.frontend.ast_nodes import (
+    ArrayLiteralExpression,
     AssignmentStatement,
     BinaryExpression,
     BlockStatement,
@@ -16,6 +17,8 @@ from rifai.frontend.ast_nodes import (
     FunctionCallExpression,
     FunctionDeclaration,
     GroupingExpression,
+    IndexAssignmentStatement,
+    IndexExpression,
     IfStatement,
     LiteralExpression,
     Parameter,
@@ -223,10 +226,19 @@ class Parser:
         token = self._peek()
         if token.token_type in _TYPE_TOKENS:
             self._advance()
+            end: Token | SourceSpan = token
+            name = token.lexeme
+            if self._match(TokenType.LEFT_BRACKET) is not None:
+                close = self._consume(
+                    TokenType.RIGHT_BRACKET,
+                    "Expected ']' after array type brackets.",
+                )
+                name += "[]"
+                end = close
             return TypeAnnotation(
-                name=token.lexeme,
+                name=name,
                 token=token,
-                span=SourceSpan.from_token(token),
+                span=SourceSpan.between(token, end),
             )
         raise self._error(token, message)
 
@@ -252,6 +264,11 @@ class Parser:
             and self._peek(1).token_type is TokenType.ASSIGN
         ):
             return self._parse_assignment_statement()
+        if (
+            self._check(TokenType.IDENTIFIER)
+            and self._peek(1).token_type is TokenType.LEFT_BRACKET
+        ):
+            return self._parse_index_or_expression_statement()
         return self._parse_expression_statement()
 
     def _parse_variable_declaration(self) -> VariableDeclaration:
@@ -282,6 +299,25 @@ class Parser:
             name_token=name_token,
             value=value,
             span=SourceSpan.between(name_token, semi),
+        )
+
+    def _parse_index_or_expression_statement(self) -> Statement:
+        expression = self._parse_expression()
+        if self._match(TokenType.ASSIGN) is not None:
+            if not isinstance(expression, IndexExpression):
+                raise self._error(self._previous(), "Only array elements can be assigned through an index.")
+            value = self._parse_expression()
+            semi = self._consume(TokenType.SEMICOLON, "Expected ';' after indexed assignment.")
+            return IndexAssignmentStatement(
+                array=expression.array,
+                index=expression.index,
+                value=value,
+                span=SourceSpan.between(expression.span, semi),
+            )
+        semi = self._consume(TokenType.SEMICOLON, "Expected ';' after expression.")
+        return ExpressionStatement(
+            expression=expression,
+            span=SourceSpan.between(expression.span, semi),
         )
 
     def _parse_block(self) -> BlockStatement:
@@ -480,6 +516,7 @@ class Parser:
         return self._parse_primary()
 
     def _parse_primary(self) -> Expression:
+        expression: Expression
         if (
             token := self._match(
                 TokenType.INTEGER,
@@ -490,35 +527,60 @@ class Parser:
             )
         ) is not None:
             assert token.literal is not None
-            return LiteralExpression(
+            expression = LiteralExpression(
                 value=token.literal,
                 token=token,
                 span=SourceSpan.from_token(token),
             )
-
-        if (ident := self._match(TokenType.IDENTIFIER)) is not None:
+        elif (ident := self._match(TokenType.IDENTIFIER)) is not None:
             if self._match(TokenType.LEFT_PAREN) is not None:
-                return self._finish_function_call(ident)
-            return VariableExpression(
-                name=ident.lexeme,
-                token=ident,
-                span=SourceSpan.from_token(ident),
-            )
-
-        if (open_paren := self._match(TokenType.LEFT_PAREN)) is not None:
+                expression = self._finish_function_call(ident)
+            else:
+                expression = VariableExpression(
+                    name=ident.lexeme,
+                    token=ident,
+                    span=SourceSpan.from_token(ident),
+                )
+        elif (open_paren := self._match(TokenType.LEFT_PAREN)) is not None:
             inner = self._parse_expression()
             close_paren = self._consume(
                 TokenType.RIGHT_PAREN, "Expected ')' after expression."
             )
-            return GroupingExpression(
+            expression = GroupingExpression(
                 expression=inner,
                 span=SourceSpan.between(open_paren, close_paren),
             )
+        elif (open_bracket := self._match(TokenType.LEFT_BRACKET)) is not None:
+            elements: list[Expression] = []
+            if not self._check(TokenType.RIGHT_BRACKET):
+                while True:
+                    elements.append(self._parse_expression())
+                    if self._match(TokenType.COMMA) is None:
+                        break
+            close_bracket = self._consume(
+                TokenType.RIGHT_BRACKET, "Expected ']' after array literal."
+            )
+            expression = ArrayLiteralExpression(
+                elements=tuple(elements),
+                span=SourceSpan.between(open_bracket, close_bracket),
+            )
+        else:
+            current = self._peek()
+            if current.token_type is TokenType.EOF:
+                raise self._error(current, "Unexpected end of file; expected expression.")
+            raise self._error(current, f"Expected expression, got '{current.lexeme}'.")
 
-        current = self._peek()
-        if current.token_type is TokenType.EOF:
-            raise self._error(current, "Unexpected end of file; expected expression.")
-        raise self._error(current, f"Expected expression, got '{current.lexeme}'.")
+        while self._match(TokenType.LEFT_BRACKET) is not None:
+            index = self._parse_expression()
+            close_bracket = self._consume(
+                TokenType.RIGHT_BRACKET, "Expected ']' after array index."
+            )
+            expression = IndexExpression(
+                array=expression,
+                index=index,
+                span=SourceSpan.between(expression.span, close_bracket),
+            )
+        return expression
 
     def _finish_function_call(self, callee: Token) -> FunctionCallExpression:
         arguments: list[Expression] = []

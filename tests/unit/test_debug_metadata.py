@@ -29,7 +29,7 @@ def test_compiler_embeds_source_and_local_symbols_and_rbc_round_trips() -> None:
     assert compiled.is_success and compiled.module is not None
     module = compiled.module
 
-    assert module.format_version == 3
+    assert module.format_version == 4
     assert module.debug_info is not None
     assert module.debug_info.source_text == SOURCE
     symbols = module.debug_info.as_mapping()

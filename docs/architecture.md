@@ -23,6 +23,9 @@ Rifa'i is a statically typed language implemented in Python. Its compiler transl
   Bytecode Optimizer ---------------- Phase 5
       | constant folding + constant-pool compaction
       v
+  CFG Analysis --------------------- Phase 9
+      | basic blocks + reachability
+      v
   Bytecode Verifier ---------------- Phase 3/4/5
       | validated control flow and stack effects
       v
@@ -45,6 +48,7 @@ Compiler.compile() orchestrates the frontend, code generator, optional optimizer
 - rifai/bytecode/module.py: Bytecode module, constants, version information, and function table.
 - rifai/bytecode/codegen.py: AST-to-bytecode generation using SemanticResult bindings.
 - rifai/bytecode/optimizer.py: Semantics-preserving constant folding, no-op cleanup, and constant-pool compaction.
+- rifai/bytecode/cfg.py: Deterministic basic-block construction, control-flow edges, and entry-reachability analysis.
 - rifai/bytecode/verifier.py: Operand validation, source-map validation, module limits, and per-chunk control-flow stack analysis.
 - rifai/bytecode/serializer.py: Deterministic versioned .rbc serialization and atomic file writes.
 - rifai/bytecode/disassembler.py: Readable listing of constants, main instructions, and functions.
@@ -84,7 +88,13 @@ Optimization runs after code generation and before the final bytecode verificati
 
 The pass compacts folded expressions and no-op pairs, then remaps absolute jump targets to the compacted instruction indices. It refuses to fold a range if a jump enters its interior, and it keeps a DUP/POP pair when either instruction is a jump target. Division/modulo by zero and operations whose result is outside the folding bounds remain instructions and preserve runtime diagnostics. Optimization can be disabled with `Compiler(optimize=False)` or `--no-optimize`.
 
-## 7. Diagnostics, Limits, and CLI
+## 7. Control-Flow Analysis
+
+Phase 9 adds a read-only control-flow graph (CFG) for the main bytecode chunk and each function chunk. Leaders are the entry instruction, jump targets, and instructions immediately following conditional/unconditional branches or terminators. Each basic block is represented by its first and last instruction offsets; successors encode branch and fall-through edges. A breadth-first traversal from the entry block classifies reachable and unreachable blocks. The analysis does not rewrite bytecode, alter stack behavior, or change the serialized v4 format.
+
+`rifai inspect` exports the CFG under `stages.bytecode.control_flow`, including block ranges, successors, edge counts, and reachable/unreachable instruction totals. This gives compiler tooling and future optimization passes a stable control-flow foundation without coupling analysis to execution.
+
+## 8. Diagnostics, Limits, and CLI
 
 Diagnostics identify the phase that emitted them and preserve source line/column coordinates when available. Generated instructions carry source locations into the VM. The VM exposes configurable positive-integer limits for executed instructions, operand-stack depth, call depth, integer bit length, string length, and total captured output. The verifier also bounds local slots per code chunk and constant-string sizes. The serializer caps bytecode files at 16 MiB and writes files using a temporary file plus atomic replacement.
 
@@ -94,10 +104,11 @@ Diagnostics identify the phase that emitted them and preserve source line/column
 - run program.rbc and vm program.rbc execute an existing bytecode module.
 - disasm program.rbc validates and displays bytecode.
 
-## 8. Project Phases
+## 9. Project Phases
 
 - Phase 1: Language specification and Lexer.
 - Phase 2: AST, Parser, Symbol Table, and Semantic Analyzer.
 - Phase 3: Bytecode model, serializer, verifier, disassembler, and VM core.
 - Phase 4: AST-to-bytecode code generation, function chunks, call frames, and full source execution.
 - Phase 5: Conservative optimization, runtime and bytecode hardening, reproducible benchmarks, examples, and final delivery.
+- Phase 9: Bytecode control-flow graph construction, basic-block and edge modeling, reachability analysis, and structured inspection output.

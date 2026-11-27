@@ -611,24 +611,31 @@ def _cse_chunk(
                 target = functions[instruction.operand]
                 _pop(stack, target.arity)
                 output.append(instruction)
+                cache.clear()
                 global_epoch += 1
                 if target.returns_value:
                     stack.append(_UNKNOWN)
                 continue
             if opcode in _ARRAY_NEW:
+                cache.clear()
                 _pop(stack, instruction.operand)
                 stack.append(_UNKNOWN)
             elif opcode is Opcode.ARRAY_GET:
+                cache.clear()
                 _pop(stack, 2)
                 stack.append(_UNKNOWN)
             elif opcode is Opcode.ARRAY_SET:
+                cache.clear()
                 _pop(stack, 3)
             elif opcode is Opcode.LENGTH:
+                cache.clear()
                 _pop(stack)
                 stack.append(_UNKNOWN)
             elif opcode is Opcode.ARRAY_PUSH:
+                cache.clear()
                 _pop(stack, 2)
             elif opcode is Opcode.ARRAY_POP:
+                cache.clear()
                 _pop(stack)
                 stack.append(_UNKNOWN)
             elif opcode is Opcode.RETURN and return_type not in (None, "void"):

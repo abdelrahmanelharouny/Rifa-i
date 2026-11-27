@@ -124,3 +124,27 @@ print(calculate(1, 2, 3, 4));
 
     assert second.module == compiled.module
     assert second.stats.common_subexpressions_eliminated == 0
+
+
+def test_common_subexpression_cache_does_not_cross_function_calls():
+    source = """fn noop() -> void {
+}
+fn calculate(a: int, b: int, c: int, d: int) -> int {
+    let first: int = (a + b) * (c + d);
+    noop();
+    let second: int = (a + b) * (c + d);
+    return first + second;
+}
+print(calculate(1, 2, 3, 4));
+"""
+    optimized = Compiler(optimize=True).compile(source)
+    unoptimized = Compiler(optimize=False).compile(source)
+
+    assert optimized.is_success and unoptimized.is_success
+    assert VirtualMachine().execute(optimized.module).output == ("42",)
+    assert VirtualMachine().execute(unoptimized.module).output == ("42",)
+    assert optimized.optimization.common_subexpressions_eliminated == 0
+    assert (
+        optimized.module.functions[1].chunk.local_count
+        == unoptimized.module.functions[1].chunk.local_count
+    )

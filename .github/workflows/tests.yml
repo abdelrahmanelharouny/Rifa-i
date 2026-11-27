@@ -38,10 +38,15 @@ jobs:
         run: |
           rifai-lsp --version
           rifai inspect examples/hello.rif --output /tmp/rifai-inspect.json
-          python -c "import json; p=json.load(open('/tmp/rifai-inspect.json', encoding='utf-8')); assert p['success'] and p['stages']['bytecode']['format_version'] == 3"
+          python -c "import json; p=json.load(open('/tmp/rifai-inspect.json', encoding='utf-8')); assert p['success'] and p['stages']['bytecode']['format_version'] == 4"
 
       - name: Validate debugger example
         run: rifai check examples/phase7_debugger.rif
+
+      - name: Validate typed collections example
+        run: |
+          rifai check examples/phase8_collections.rif
+          rifai run examples/phase8_collections.rif
 
       - name: Verify interactive debugger smoke test
         run: |

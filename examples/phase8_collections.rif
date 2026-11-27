@@ -1,0 +1,32 @@
+// Rifa'i Phase 8 — typed arrays and collection operations.
+
+fn sum(values: int[]) -> int {
+    let result: int = 0;
+    let index: int = 0;
+    while (index < len(values)) {
+        result = result + values[index];
+        index = index + 1;
+    }
+    return result;
+}
+
+fn make_labels() -> string[] {
+    return ["compiler", "runtime", "bytecode"];
+}
+
+let scores: int[] = [8, 9, 10];
+let labels: string[] = make_labels();
+
+print(sum(scores));
+print(labels[1]);
+
+scores[1] = 12;
+push(scores, 11);
+print(len(scores));
+print(pop(scores));
+print(scores[1]);
+
+let flags: bool[] = [true, false, true];
+let ratios: float[] = [0.25, 0.5];
+print(len(flags));
+print(len(ratios));

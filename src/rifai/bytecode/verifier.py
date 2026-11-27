@@ -18,6 +18,8 @@ from rifai.bytecode.module import (
     BytecodeDebugInfo,
     BytecodeDebugLocal,
     BytecodeModule,
+    COLLECTIONS_FORMAT_VERSION,
+    DEBUG_INFO_FORMAT_VERSION,
     FORMAT_VERSION,
     FUNCTIONS_FORMAT_VERSION,
     LEGACY_FORMAT_VERSION,
@@ -25,7 +27,7 @@ from rifai.bytecode.module import (
 )
 from rifai.errors.diagnostics import Diagnostic, DiagnosticPhase
 
-_ALLOWED_VALUE_TYPES = frozenset({"int", "float", "bool", "string"})
+_ALLOWED_VALUE_TYPES = frozenset({"int", "float", "bool", "string", "int[]", "float[]", "bool[]", "string[]"})
 _ALLOWED_RETURN_TYPES = _ALLOWED_VALUE_TYPES | {"void"}
 MAX_CONSTANT_COUNT = 500_000
 MAX_FUNCTION_COUNT = 100_000
@@ -76,7 +78,8 @@ class BytecodeVerifier:
         if type(module.format_version) is not int or module.format_version not in (
             LEGACY_FORMAT_VERSION,
             FUNCTIONS_FORMAT_VERSION,
-            FORMAT_VERSION,
+            DEBUG_INFO_FORMAT_VERSION,
+            COLLECTIONS_FORMAT_VERSION,
         ):
             report(f"Unsupported bytecode version {module.format_version!r}.")
         if module.source_name is not None and not isinstance(module.source_name, str):
@@ -111,7 +114,11 @@ class BytecodeVerifier:
         )
         supports_debug_info = (
             type(module.format_version) is int
-            and module.format_version >= FORMAT_VERSION
+            and module.format_version >= DEBUG_INFO_FORMAT_VERSION
+        )
+        supports_collections = (
+            type(module.format_version) is int
+            and module.format_version >= COLLECTIONS_FORMAT_VERSION
         )
         if not supports_functions and module.functions:
             report("Version 1 bytecode cannot contain function chunks.")
@@ -181,6 +188,11 @@ class BytecodeVerifier:
                                 report(f"Debug local in '{chunk_name}' has an invalid name.")
                             if not isinstance(symbol.type_name, str) or symbol.type_name not in _ALLOWED_VALUE_TYPES:
                                 report(f"Debug local in '{chunk_name}' has an invalid type.")
+                            elif not supports_collections and symbol.type_name.endswith("[]"):
+                                report(
+                                    f"Array debug local types require bytecode version "
+                                    f"{COLLECTIONS_FORMAT_VERSION}."
+                                )
 
         function_by_name: dict[str, BytecodeFunction] = {}
         seen_function_names: set[str] = set()
@@ -215,6 +227,22 @@ class BytecodeVerifier:
             )
             if not return_type_valid:
                 report(f"Function '{function.name}' has an invalid return type.")
+            if not supports_collections and parameter_types_valid and any(
+                item.endswith("[]") for item in function.parameter_types
+            ):
+                report(
+                    f"Function '{function.name}' array parameters require bytecode version "
+                    f"{COLLECTIONS_FORMAT_VERSION}."
+                )
+            if (
+                not supports_collections
+                and return_type_valid
+                and function.return_type.endswith("[]")
+            ):
+                report(
+                    f"Function '{function.name}' array return type requires bytecode version "
+                    f"{COLLECTIONS_FORMAT_VERSION}."
+                )
             if (
                 parameter_types_valid
                 and function.chunk.arity != len(function.parameter_types)
@@ -344,6 +372,23 @@ class BytecodeVerifier:
                     if not 0 <= operand < len(instructions):
                         report(f"Jump target {operand} is out of range at instruction {index}.", instruction)
                         continue
+                elif opcode in {
+                    Opcode.ARRAY_NEW_INT, Opcode.ARRAY_NEW_FLOAT,
+                    Opcode.ARRAY_NEW_BOOL, Opcode.ARRAY_NEW_STRING,
+                    Opcode.ARRAY_GET, Opcode.ARRAY_SET, Opcode.LENGTH,
+                    Opcode.ARRAY_PUSH, Opcode.ARRAY_POP,
+                } and not supports_collections:
+                    report(
+                        f"{opcode.value} requires bytecode version {COLLECTIONS_FORMAT_VERSION}.",
+                        instruction,
+                    )
+                    continue
+                elif opcode in {
+                    Opcode.ARRAY_NEW_INT, Opcode.ARRAY_NEW_FLOAT,
+                    Opcode.ARRAY_NEW_BOOL, Opcode.ARRAY_NEW_STRING,
+                } and (operand < 0 or operand > 1_000_000):
+                    report("Array literal element count is outside the supported limit.", instruction)
+                    continue
                 elif opcode is Opcode.CALL:
                     if not supports_functions or operand not in function_by_name:
                         report(f"Call target '{operand}' does not exist in this bytecode module.", instruction)
@@ -375,6 +420,12 @@ class BytecodeVerifier:
                     delta = -required + (
                         1 if target is not None and target.returns_value else 0
                     )
+                elif opcode in {
+                    Opcode.ARRAY_NEW_INT, Opcode.ARRAY_NEW_FLOAT,
+                    Opcode.ARRAY_NEW_BOOL, Opcode.ARRAY_NEW_STRING,
+                }:
+                    required = instruction.operand
+                    delta = 1 - instruction.operand
                 elif opcode is Opcode.RETURN:
                     required = 1 if return_type != "void" else 0
                     delta = 0

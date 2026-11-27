@@ -8,6 +8,7 @@ from rifai.vm.machine import (
 )
 from rifai.vm.debugger import DebuggerResult, InteractiveDebugger
 from rifai.vm.runtime import (
+    ArrayValue,
     BytecodeValidationError,
     ExecutionResult,
     VMRuntimeError,
@@ -15,6 +16,7 @@ from rifai.vm.runtime import (
 )
 
 __all__ = [
+    "ArrayValue",
     "BytecodeValidationError",
     "DebugFrameSnapshot",
     "DebugLocalSnapshot",

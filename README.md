@@ -11,6 +11,7 @@ Rifa'i (.rif) is a custom statically typed programming language implemented in P
 - **Phase 5 — Optimization and Final Hardening (Complete):** Conservative bytecode optimization, bounded VM resources, hardened bytecode validation and atomic serialization, reproducible performance benchmarks, final examples, and delivery documentation.
 - **Phase 6 — Developer Experience (Complete):** stdio Language Server Protocol implementation, VS Code language extension, live diagnostics, completion, hover, definition/references, document symbols, signature help, and structured compiler-pipeline inspection.
 - **Phase 7 — Debugging Toolchain (Complete):** Interactive CLI debugger and VS Code Debug Adapter Protocol integration, source breakpoints, step into/over/out, locals/globals/operand-stack inspection, call stack, and standalone .rbc debugging with embedded source and local-symbol metadata.
+- **Phase 8 — Typed Collections (Complete):** Homogeneous one-dimensional arrays (int[], float[], bool[], string[]), literals, indexing, element assignment, array parameters/returns, standard len/push/pop, runtime bounds and capacity checks, and bytecode v4.
 
 ## Quick Start
 
@@ -92,7 +93,7 @@ The bytecode format is version 2. The reader retains support for version 1 modul
 
 ## Testing
 
-The suite covers lexical and syntactic analysis, semantic errors, bytecode verification and serialization, VM operations, source compilation, control flow, local/global variables, function calls, recursion, optimization parity, optimizer invariants, resource limits, and CLI workflows.
+The suite covers lexical and syntactic analysis, semantic errors, typed-array construction/indexing/mutation, standard collection functions, bytecode verification and serialization, VM operations, source compilation, control flow, local/global variables, function calls, recursion, optimization parity, optimizer invariants, resource limits, and CLI workflows.
 
 ```bash
 python -m pytest -v
@@ -117,3 +118,25 @@ Run `rifai debug program.rif` or `rifai debug program.rbc` to start the CLI debu
 The VS Code extension registers a Debug Adapter Protocol implementation. Open a `.rif` file, select **Debug current Rifa'i file**, and press F5; or create a `rifai` launch configuration pointing to a compiled `.rbc` file. The adapter supports entry and source-line breakpoints, continue, pause, step over/into/out, call-stack frames, locals, globals, operand stack, and embedded source retrieval. Hover/evaluate reads a direct variable name only; it does not execute arbitrary expressions.
 
 The VM exposes immutable pre-instruction snapshots shared by both debugger interfaces. The optimizer preserves embedded metadata because local slots are not renumbered. Use `--no-optimize` in the CLI or `noOptimize` in `launch.json` to follow the direct code-generator instruction sequence. See [docs/phase7-report.md](docs/phase7-report.md) and [editors/vscode/README.md](editors/vscode/README.md).
+
+
+## Phase 8: Typed Collections
+
+Rifa'i supports statically typed homogeneous one-dimensional arrays. Supported element types are int, float, bool, and string. The type annotations are int[], float[], bool[], and string[].
+
+Example:
+
+```rif
+let numbers: int[] = [10, 20, 30];
+print(numbers[1]);
+numbers[1] = 25;
+push(numbers, 40);
+print(pop(numbers));
+print(len(numbers));
+```
+
+Non-empty literals infer the element type and require exact homogeneity. Empty literals are permitted when their surrounding declaration/parameter/return type supplies the element type. Arrays can be passed to and returned from functions. They are reference values, so aliases observe mutations. Nested arrays are intentionally unsupported.
+
+The standard collection functions are len(string or T[]) -> int, push(T[], T) -> void, and pop(T[]) -> T. Array indexes are zero-based. The VM checks element types, bounds, empty pops, and a configurable max_array_items limit.
+
+Bytecode v4 adds typed array construction, element access/mutation, length, append, and pop instructions. Bytecode v1, v2, and v3 remain readable and executable; collection instructions are rejected in formats older than v4. See docs/phase8-report.md, docs/language-spec.md, and docs/bytecode-spec.md.

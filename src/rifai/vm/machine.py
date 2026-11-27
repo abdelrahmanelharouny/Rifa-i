@@ -11,14 +11,21 @@ from rifai.bytecode.instructions import Instruction, Opcode
 from rifai.bytecode.module import BytecodeModule
 from rifai.bytecode.verifier import BytecodeVerifier
 from rifai.vm.runtime import (
+    ArrayValue,
     BytecodeValidationError,
     ExecutionResult,
+    RuntimeValue,
     VMRuntimeError,
     format_value,
 )
 
 _UNINITIALIZED = object()
-RuntimeValue = int | float | bool | str
+_ARRAY_OPCODE_TYPES = {
+    Opcode.ARRAY_NEW_INT: "int",
+    Opcode.ARRAY_NEW_FLOAT: "float",
+    Opcode.ARRAY_NEW_BOOL: "bool",
+    Opcode.ARRAY_NEW_STRING: "string",
+}
 
 
 @dataclass(slots=True)
@@ -81,6 +88,7 @@ class VirtualMachine:
         max_string_length: int = 16 * 1024 * 1024,
         max_output_chars: int = 16 * 1024 * 1024,
         max_integer_bits: int = 1_000_000,
+        max_array_items: int = 1_000_000,
     ) -> None:
         limits = {
             "max_steps": max_steps,
@@ -89,6 +97,7 @@ class VirtualMachine:
             "max_string_length": max_string_length,
             "max_output_chars": max_output_chars,
             "max_integer_bits": max_integer_bits,
+            "max_array_items": max_array_items,
         }
         for name, value in limits.items():
             if type(value) is not int or value < 1:
@@ -99,9 +108,20 @@ class VirtualMachine:
         self.max_string_length = max_string_length
         self.max_output_chars = max_output_chars
         self.max_integer_bits = max_integer_bits
+        self.max_array_items = max_array_items
 
     @staticmethod
     def _matches_type(value: RuntimeValue, type_name: str) -> bool:
+        if type_name.endswith("[]"):
+            element_type = type_name[:-2]
+            return (
+                isinstance(value, ArrayValue)
+                and value.element_type == element_type
+                and all(
+                    VirtualMachine._matches_type(item, element_type)
+                    for item in value.items
+                )
+            )
         if type_name == "bool":
             return type(value) is bool
         if type_name == "int":
@@ -132,8 +152,25 @@ class VirtualMachine:
         for name, value in (initial_globals or {}).items():
             if not isinstance(name, str) or not name:
                 raise ValueError("Initial global names must be non-empty strings.")
-            if type(value) not in (int, float, bool, str):
+            if type(value) not in (int, float, bool, str) and not isinstance(value, ArrayValue):
                 raise ValueError(f"Initial global {name!r} has an unsupported value.")
+            if isinstance(value, ArrayValue):
+                if value.element_type not in {"int", "float", "bool", "string"}:
+                    raise ValueError(f"Initial global {name!r} has an invalid array element type.")
+                if len(value.items) > self.max_array_items or not all(
+                    self._matches_type(item, value.element_type)
+                    and not (
+                        type(item) is int
+                        and item.bit_length() > self.max_integer_bits
+                    )
+                    and not (type(item) is float and not math.isfinite(item))
+                    and not (
+                        type(item) is str
+                        and len(item) > self.max_string_length
+                    )
+                    for item in value.items
+                ):
+                    raise ValueError(f"Initial global {name!r} is not a valid bounded homogeneous array.")
             if type(value) is float and not math.isfinite(value):
                 raise ValueError(f"Initial global {name!r} must be a finite float.")
             if type(value) is int and value.bit_length() > self.max_integer_bits:
@@ -283,6 +320,78 @@ class VirtualMachine:
                 push(globals_[instruction.operand], instruction)
             elif opcode is Opcode.STORE_GLOBAL:
                 globals_[instruction.operand] = pop(instruction)
+            elif opcode in _ARRAY_OPCODE_TYPES:
+                count = instruction.operand
+                if len(stack) < count:
+                    raise fault("Array construction has insufficient element values.", instruction)
+                values = stack[-count:] if count else []
+                if count:
+                    del stack[-count:]
+                element_type = _ARRAY_OPCODE_TYPES[opcode]
+                if not all(self._matches_type(value, element_type) for value in values):
+                    raise fault(
+                        f"{opcode.value} received an element with the wrong runtime type.",
+                        instruction,
+                    )
+                if count > self.max_array_items:
+                    raise fault(
+                        f"Array item limit ({self.max_array_items}) exceeded.",
+                        instruction,
+                    )
+                push(ArrayValue(element_type, list(values)), instruction)
+            elif opcode is Opcode.ARRAY_GET:
+                index = pop(instruction)
+                array = pop(instruction)
+                if not isinstance(array, ArrayValue) or type(index) is not int:
+                    raise fault("ARRAY_GET requires an array and an integer index.", instruction)
+                if index < 0 or index >= len(array.items):
+                    raise fault(
+                        f"Array index {index} is out of bounds for length {len(array.items)}.",
+                        instruction,
+                    )
+                push(array.items[index], instruction)
+            elif opcode is Opcode.ARRAY_SET:
+                value = pop(instruction)
+                index = pop(instruction)
+                array = pop(instruction)
+                if not isinstance(array, ArrayValue) or type(index) is not int:
+                    raise fault("ARRAY_SET requires an array and an integer index.", instruction)
+                if not self._matches_type(value, array.element_type):
+                    raise fault("ARRAY_SET value does not match the array element type.", instruction)
+                if index < 0 or index >= len(array.items):
+                    raise fault(
+                        f"Array index {index} is out of bounds for length {len(array.items)}.",
+                        instruction,
+                    )
+                array.items[index] = value
+            elif opcode is Opcode.LENGTH:
+                value = pop(instruction)
+                if isinstance(value, ArrayValue):
+                    push(len(value.items), instruction)
+                elif type(value) is str:
+                    push(len(value), instruction)
+                else:
+                    raise fault("LENGTH requires a string or array.", instruction)
+            elif opcode is Opcode.ARRAY_PUSH:
+                value = pop(instruction)
+                array = pop(instruction)
+                if not isinstance(array, ArrayValue):
+                    raise fault("ARRAY_PUSH requires an array as its first argument.", instruction)
+                if not self._matches_type(value, array.element_type):
+                    raise fault("ARRAY_PUSH value does not match the array element type.", instruction)
+                if len(array.items) >= self.max_array_items:
+                    raise fault(
+                        f"Array item limit ({self.max_array_items}) exceeded.",
+                        instruction,
+                    )
+                array.items.append(value)
+            elif opcode is Opcode.ARRAY_POP:
+                array = pop(instruction)
+                if not isinstance(array, ArrayValue):
+                    raise fault("ARRAY_POP requires an array.", instruction)
+                if not array.items:
+                    raise fault("Cannot pop from an empty array.", instruction)
+                push(array.items.pop(), instruction)
             elif opcode is Opcode.NEGATE:
                 value = pop(instruction)
                 if type(value) not in (int, float):

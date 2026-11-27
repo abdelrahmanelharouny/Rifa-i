@@ -4,6 +4,8 @@ import json
 from io import BytesIO
 
 from rifai.lsp import (
+    KEYWORDS,
+    TYPES,
     LanguageServer,
     _offset_at,
     _position_at,
@@ -165,3 +167,19 @@ def test_stdio_server_handles_initialize_open_and_exit() -> None:
     assert responses[0]["id"] == 1
     assert responses[0]["result"]["serverInfo"]["name"] == "Rifa'i Language Server"
     assert any(item.get("method") == "textDocument/publishDiagnostics" for item in responses)
+
+
+def test_completion_includes_typed_collection_syntax_and_builtins() -> None:
+    server = LanguageServer()
+    uri = _open(server, "")
+    result = server.handle_request(
+        "textDocument/completion",
+        {
+            "textDocument": {"uri": uri},
+            "position": {"line": 0, "character": 0},
+        },
+    )
+    labels = {item["label"] for item in result.get("items", [])}
+    assert {"len", "push", "pop"} <= set(KEYWORDS)
+    assert {"int[]", "float[]", "bool[]", "string[]"} <= set(TYPES)
+    assert {"len", "push", "pop", "int[]", "float[]", "bool[]", "string[]"} <= labels

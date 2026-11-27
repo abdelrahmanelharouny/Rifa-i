@@ -10,6 +10,7 @@ from rifai.bytecode.module import BytecodeDebugInfo, BytecodeDebugLocal, Bytecod
 from rifai.errors.diagnostics import Diagnostic, DiagnosticPhase
 from rifai.frontend.ast_nodes import (
     ASTNode,
+    ArrayLiteralExpression,
     AssignmentStatement,
     BinaryExpression,
     BlockStatement,
@@ -18,6 +19,8 @@ from rifai.frontend.ast_nodes import (
     FunctionCallExpression,
     FunctionDeclaration,
     GroupingExpression,
+    IndexAssignmentStatement,
+    IndexExpression,
     IfStatement,
     LiteralExpression,
     PrintStatement,
@@ -247,6 +250,16 @@ class CodeGenerator:
             yield from CodeGenerator._walk(root.initializer)
         elif isinstance(root, AssignmentStatement):
             yield from CodeGenerator._walk(root.value)
+        elif isinstance(root, IndexAssignmentStatement):
+            yield from CodeGenerator._walk(root.array)
+            yield from CodeGenerator._walk(root.index)
+            yield from CodeGenerator._walk(root.value)
+        elif isinstance(root, ArrayLiteralExpression):
+            for element in root.elements:
+                yield from CodeGenerator._walk(element)
+        elif isinstance(root, IndexExpression):
+            yield from CodeGenerator._walk(root.array)
+            yield from CodeGenerator._walk(root.index)
         elif isinstance(root, IfStatement):
             yield from CodeGenerator._walk(root.condition)
             yield from CodeGenerator._walk(root.then_branch)
@@ -364,6 +377,11 @@ class CodeGenerator:
             symbol = self._variable_symbol(statement, semantic)
             if symbol is not None:
                 self._store_variable(symbol, statement.span)
+        elif isinstance(statement, IndexAssignmentStatement):
+            self._compile_expression(statement.array, semantic)
+            self._compile_expression(statement.index, semantic)
+            self._compile_expression(statement.value, semantic)
+            self._emit(Opcode.ARRAY_SET, location=statement.span)
         elif isinstance(statement, BlockStatement):
             for nested in statement.statements:
                 self._compile_statement(nested, semantic)
@@ -433,6 +451,25 @@ class CodeGenerator:
                 self._load_variable(symbol, expression.span)
         elif isinstance(expression, GroupingExpression):
             self._compile_expression(expression.expression, semantic)
+        elif isinstance(expression, ArrayLiteralExpression):
+            for element in expression.elements:
+                self._compile_expression(element, semantic)
+            array_type = semantic.type_of(expression)
+            array_opcodes = {
+                "int[]": Opcode.ARRAY_NEW_INT,
+                "float[]": Opcode.ARRAY_NEW_FLOAT,
+                "bool[]": Opcode.ARRAY_NEW_BOOL,
+                "string[]": Opcode.ARRAY_NEW_STRING,
+            }
+            opcode = array_opcodes.get(array_type.value if array_type is not None else "")
+            if opcode is None:
+                self._error(expression.span, "Could not determine array element type during code generation.")
+            else:
+                self._emit(opcode, len(expression.elements), location=expression.span)
+        elif isinstance(expression, IndexExpression):
+            self._compile_expression(expression.array, semantic)
+            self._compile_expression(expression.index, semantic)
+            self._emit(Opcode.ARRAY_GET, location=expression.span)
         elif isinstance(expression, UnaryExpression):
             self._compile_expression(expression.operand, semantic)
             opcode = (
@@ -452,10 +489,17 @@ class CodeGenerator:
         elif isinstance(expression, FunctionCallExpression):
             for argument in expression.arguments:
                 self._compile_expression(argument, semantic)
-            symbol = semantic.function_for(expression)
-            if symbol is None:
-                self._error(expression.span, f"Missing semantic binding for function '{expression.callee}'.")
+            if expression.callee == "len":
+                self._emit(Opcode.LENGTH, location=expression.span)
+            elif expression.callee == "push":
+                self._emit(Opcode.ARRAY_PUSH, location=expression.span)
+            elif expression.callee == "pop":
+                self._emit(Opcode.ARRAY_POP, location=expression.span)
             else:
-                self._emit(Opcode.CALL, symbol.name, location=expression.span)
+                symbol = semantic.function_for(expression)
+                if symbol is None:
+                    self._error(expression.span, f"Missing semantic binding for function '{expression.callee}'.")
+                else:
+                    self._emit(Opcode.CALL, symbol.name, location=expression.span)
         else:
             self._error(expression.span, f"Unsupported expression node '{type(expression).__name__}'.")

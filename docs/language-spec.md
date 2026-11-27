@@ -39,6 +39,7 @@ Rifa'i enforces **strict static typing** with **no implicit type conversions**:
 | `bool` | Boolean (`true` / `false`) | Variables, parameters, return types |
 | `string` | Character string | Variables, parameters, return types |
 | `void` | Absence of a return value | Function return type only |
+| `T[]` | Homogeneous one-dimensional array of primitive T | Variables, parameters, function returns, indexing |
 
 - `let x: int = 10.5;` and `let y: float = 20;` are both compile-time type errors.
 - Variables and function parameters cannot have type `void`.
@@ -120,3 +121,19 @@ From highest to lowest:
 ## 8. Logical Evaluation
 
 The version 1 language evaluates both operands of the logical operators and and or before applying the logical operation. These operators are eager, not short-circuiting. This is consistent with the version 1 bytecode AND and OR instructions. A future language version may introduce short-circuit semantics only with an explicit specification and bytecode compatibility decision.
+
+
+## 9. Typed Arrays and Collection Operations
+
+Rifa'i supports one-dimensional homogeneous arrays with element type int, float, bool, or string. Type annotations use int[], float[], bool[], or string[]. Array literals use square brackets, for example [1, 2, 3], [true, false], or ["a", "b"].
+
+A non-empty literal infers its element type from its first element and requires every later element to have exactly the same type. An empty literal ([]) requires an explicit array type context, such as let values: int[] = []. Nested arrays and implicit element conversions are not supported.
+
+Arrays can be passed to and returned from functions. They are reference values: assigning one array variable to another creates an alias, not a copy. Indexes are zero-based and must have type int. Reads and writes outside the valid range are runtime errors.
+
+Standard collection functions:
+- len(string) -> int and len(T[]) -> int.
+- push(T[], T) -> void appends an element matching the array's declared element type.
+- pop(T[]) -> T removes and returns the final element; an empty pop is a runtime error.
+
+The names len, push, and pop are reserved for the standard library and cannot be declared as variables or user functions. The VM enforces runtime element types, index bounds, non-empty pop, and the configurable max_array_items resource limit, including for untrusted bytecode.

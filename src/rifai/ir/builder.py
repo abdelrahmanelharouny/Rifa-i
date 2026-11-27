@@ -242,6 +242,7 @@ class BytecodeToIR:
                     output_type = inputs[0].type_name
                     output = IRValue(next_value_id, output_type)
                     next_value_id += 1
+                    outputs = (output,)
                     stack.append(output)
                 else:
                     inputs = tuple(self._take(stack, required, instruction))
@@ -328,10 +329,28 @@ class BytecodeToIR:
         by_id = {block.block_id: block for block in graph.blocks}
         heights: dict[int, int] = {}
 
+        def minimum_entry_height(block) -> int:
+            height = 0
+            initial = 0
+            for index in range(block.start, block.end + 1):
+                instruction = chunk.instructions[index]
+                required, produced = _stack_effect(instruction, functions, return_type)
+                if height < required:
+                    deficit = required - height
+                    initial += deficit
+                    height += deficit
+                if instruction.opcode is Opcode.RETURN:
+                    height = 0
+                elif instruction.opcode is Opcode.JUMP_IF_FALSE:
+                    height -= required
+                elif instruction.opcode not in (Opcode.JUMP, Opcode.HALT):
+                    height = height - required + produced
+            return initial
+
         def propagate(seed: int) -> None:
             if seed in heights:
                 return
-            heights[seed] = 0
+            heights[seed] = minimum_entry_height(by_id[seed])
             queue = deque([seed])
             while queue:
                 block_id = queue.popleft()

@@ -122,12 +122,12 @@ def _run_check_command(file_path: Path) -> int:
 def _compile_source_file(file_path: Path, *, optimize: bool = True):
     source = _read_source(file_path)
     if source is None:
-        return None, None
+        return None, None, None
     result = Compiler(optimize=optimize).compile(source, source_name=str(file_path))
     if not result.is_success:
         _print_diagnostics(result.diagnostics, file_path)
-        return None, None
-    return result.module, result.optimization
+        return None, None, None
+    return result.module, result.optimization, result.ir_stats
 
 
 def _run_compile_command(
@@ -139,7 +139,7 @@ def _run_compile_command(
     if file_path.suffix.lower() != ".rif":
         print(f"[io] Expected a .rif source file, got: {file_path}", file=sys.stderr)
         return 1
-    module, stats = _compile_source_file(file_path, optimize=optimize)
+    module, stats, ir_stats = _compile_source_file(file_path, optimize=optimize)
     if module is None:
         return 1
     validation = BytecodeVerifier().verify(module)
@@ -172,6 +172,16 @@ def _run_compile_command(
             f"{stats.branches_folded} branch(es) folded, "
             f"{stats.unreachable_instructions_removed} unreachable instruction(s) removed, "
             f"{stats.common_subexpressions_eliminated} common expression(s) reused."
+        )
+    if ir_stats is not None:
+        print(
+            "IR pipeline: "
+            f"{ir_stats.function_count} function(s), "
+            f"{ir_stats.block_count} block(s), "
+            f"{ir_stats.operation_count} operation(s), "
+            f"{ir_stats.value_count} value(s), "
+            f"{ir_stats.edge_count} edge(s), "
+            f"{ir_stats.loop_back_edge_count} loop back-edge(s)."
         )
     return 0
 
@@ -222,7 +232,7 @@ def _run_command(file_path: Path, *, optimize: bool = True) -> int:
             file=sys.stderr,
         )
         return 1
-    module, _ = _compile_source_file(file_path, optimize=optimize)
+    module, _, _ = _compile_source_file(file_path, optimize=optimize)
     if module is None:
         return 1
     validation = BytecodeVerifier().verify(module)

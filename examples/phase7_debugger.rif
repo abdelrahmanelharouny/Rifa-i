@@ -1,18 +1,18 @@
 // Rifa'i Phase 7 — Interactive debugger walkthrough
 
-fn calculate_total(price: int, quantity: int) -> int {
-    let subtotal: int = price * quantity;
-    let discount: int = subtotal / 10;
-    let total: int = subtotal - discount;
+fn calculate_total(price: float, quantity: float) -> float {
+    let subtotal: float = price * quantity;
+    let tax: float = subtotal / 10.0;
+    let total: float = subtotal + tax;
     return total;
 }
 
-fn print_invoice(name: string, amount: int) -> void {
+fn print_invoice(name: string, amount: float) -> void {
     print("Invoice for " + name);
     print(amount);
 }
 
-let item_price: int = 120;
-let item_count: int = 3;
-let final_total: int = calculate_total(item_price, item_count);
+let item_price: float = 120.0;
+let item_count: float = 3.0;
+let final_total: float = calculate_total(item_price, item_count);
 print_invoice("Rifa'i", final_total);

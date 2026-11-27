@@ -40,6 +40,9 @@ jobs:
           rifai inspect examples/hello.rif --output /tmp/rifai-inspect.json
           python -c "import json; p=json.load(open('/tmp/rifai-inspect.json', encoding='utf-8')); assert p['success'] and p['stages']['bytecode']['format_version'] == 2"
 
+      - name: Validate debugger example
+        run: rifai check examples/phase7_debugger.rif
+
       - name: Verify interactive debugger smoke test
         run: |
           printf '%s\n' continue continue | rifai debug examples/phase7_debugger.rif --breakpoint 4 > /tmp/rifai-debug.txt

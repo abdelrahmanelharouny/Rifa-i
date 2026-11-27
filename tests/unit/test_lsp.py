@@ -26,7 +26,6 @@ def _open(server: LanguageServer, source: str = SOURCE, version: int = 1) -> str
         "textDocument/didOpen",
         {"textDocument": {"uri": uri, "languageId": "rifai", "version": version, "text": source}},
     )
-    server.take_notifications()
     return uri
 
 

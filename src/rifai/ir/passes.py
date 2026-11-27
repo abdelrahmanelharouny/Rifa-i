@@ -285,13 +285,23 @@ class IRBranchSimplificationPass:
             blocks = []
             for block in function.blocks:
                 term = block.terminator
+                operations = block.operations
                 if isinstance(term, IRBranch) and type(known.get(term.condition)) is bool:
+                    # JUMP_IF_FALSE consumes its condition in the stack VM.
+                    # Once the branch becomes an unconditional jump, preserve
+                    # that stack effect explicitly in the lowered bytecode.
+                    operations = (*operations, IROperation(
+                        opcode=Opcode.POP,
+                        outputs=(),
+                        inputs=(term.condition,),
+                        location=term.location,
+                    ))
                     if known[term.condition]:
                         term = IRJump(term.true_target, term.true_arguments, True, term.location)
                     else:
                         term = IRJump(term.false_target, term.false_arguments, False, term.location)
                     simplified += 1
-                blocks.append(replace(block, terminator=term))
+                blocks.append(replace(block, operations=operations, terminator=term))
             functions.append(replace(function, blocks=tuple(blocks)))
         return replace(module, main=functions[0], functions=tuple(functions[1:])), simplified
 

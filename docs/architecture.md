@@ -109,7 +109,7 @@ The IR verifier checks unique definitions, use-before-definition, operation arit
 
 IRToBytecode lays out the blocks in their original source order, reconstitutes branch targets and terminators, preserves constants/local frames/debug metadata, and runs the bytecode verifier over the lowered module. No new bytecode opcodes or serialized-format changes are required.
 
-The transitional design is intentional: the current AST code generator remains the stable frontend backend, while the new IR boundary provides a migration point for future direct AST-to-IR lowering and IR-native optimization passes. CompilationResult exposes ir_module, ir_stats, and ir_analysis; rifai inspect exports the same information under its IR stages.
+The transitional design is intentional: the current AST code generator remains the stable frontend backend, while the IR boundary provides a migration point for future direct AST-to-IR lowering. Phase 12 adds IR-native scalar constant propagation through block parameters, bounded constant folding, constant-branch simplification, and reachability-based block removal. The pass manager iterates to a bounded fixed point, canonicalizes values, verifies the result, and records transformation counters. Runtime-faulting expressions and unknown branches remain intact. CompilationResult exposes ir_module, ir_stats, and ir_analysis; rifai inspect exports the same information under its IR stages.
 
 ## 9. Diagnostics, Limits, and CLI
 
@@ -131,3 +131,4 @@ Diagnostics identify the phase that emitted them and preserve source line/column
 - Phase 9: Bytecode control-flow graph construction, basic-block and edge modeling, reachability analysis, and structured inspection output.
 - Phase 10: CFG-aware constant propagation, branch simplification, unreachable-block elimination, and profitable local common-subexpression elimination.
 - Phase 11: Typed explicit-value IR, block parameters, verified lifting/lowering, canonical value numbering, dominator analysis, and multi-pass compiler integration.
+- Phase 12: IR-native scalar constant propagation/folding, constant-branch simplification, unreachable-block elimination, and bounded fixed-point optimization.

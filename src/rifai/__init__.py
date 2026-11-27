@@ -32,6 +32,8 @@ from rifai.ir import (
     IRAnalyzer,
     IRBlock,
     IRBranch,
+    IRBranchSimplificationPass,
+    IRConstantPropagationPass,
     IRFunction,
     IRHalt,
     IRJump,
@@ -47,6 +49,7 @@ from rifai.ir import (
     IRToBytecode,
     IRValidationResult,
     IRValue,
+    IRUnreachableBlockEliminationPass,
     IRValueNumberingPass,
     IRVerifier,
 )
@@ -69,7 +72,7 @@ from rifai.vm import (
     VMRuntimeError,
 )
 
-__version__ = "0.12.0"
+__version__ = "0.13.0"
 
 __all__ = [
     "BasicBlock",
@@ -84,6 +87,8 @@ __all__ = [
     "IRAnalyzer",
     "IRBlock",
     "IRBranch",
+    "IRBranchSimplificationPass",
+    "IRConstantPropagationPass",
     "IRFunction",
     "IRHalt",
     "IRJump",
@@ -99,6 +104,7 @@ __all__ = [
     "IRToBytecode",
     "IRValidationResult",
     "IRValue",
+    "IRUnreachableBlockEliminationPass",
     "IRValueNumberingPass",
     "IRVerifier",
     "BytecodeDebugInfo",

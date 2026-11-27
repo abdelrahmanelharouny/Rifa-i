@@ -35,6 +35,9 @@ print(square(total));
     assert result.ir_analysis is not None
     assert result.ir_stats.passes == (
         "verify-input",
+        "ir-constant-propagation",
+        "ir-branch-simplification",
+        "ir-unreachable-block-elimination",
         "canonical-value-numbering",
         "verify-output",
         "cfg-dominator-analysis",

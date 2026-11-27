@@ -14,6 +14,7 @@ Rifa'i (.rif) is a custom statically typed programming language implemented in P
 - **Phase 8 — Typed Collections (Complete):** Homogeneous one-dimensional arrays (int[], float[], bool[], string[]), literals, indexing, element assignment, array parameters/returns, standard len/push/pop, runtime bounds and capacity checks, and bytecode v4.
 - **Phase 9 — Control-Flow Analysis (Complete):** Deterministic bytecode basic blocks, branch/fall-through edges, per-chunk reachability analysis, and structured CFG export through `rifai inspect`.
 - **Phase 10 — Data-Flow & Advanced Optimization (Complete):** CFG-aware constant propagation, constant-branch folding, unreachable-block elimination, profitable block-local common-subexpression elimination, and optimization statistics.
+- **Phase 11 — Intermediate Representation (Complete):** Typed explicit-value IR, basic-block parameters, bytecode-to-IR and IR-to-bytecode lowering, IR verification, canonical value numbering, dominator/loop analysis, and multi-pass compiler integration.
 
 ## Quick Start
 
@@ -174,3 +175,26 @@ rifai inspect examples/phase10_advanced_optimization.rif -o phase10.inspect.json
 ```
 
 See [docs/phase10-report.md](docs/phase10-report.md) for implementation details and safety boundaries.
+
+
+## Phase 11: Intermediate Representation and Multi-Pass Compiler
+
+Rifa'i now exposes a typed, explicit-value IR between compiler optimization and final bytecode verification. The current transitional frontend keeps the proven AST-to-bytecode generator, then lifts its verified output into IR. Operand-stack values become virtual values, stack merges become block parameters, and jumps/branches/returns become explicit terminators. Local and global storage remain explicit operations, preserving the language's existing execution model.
+
+The IR pipeline runs input verification, deterministic virtual-value numbering, output verification, and CFG analysis. The analyzer reports reachability, predecessors, dominator sets, immediate dominators, and loop back-edges for the main function and every function. The IR lowerer then reconstructs bytecode and verifies it before the compiler returns a successful result.
+
+The final CompilationResult exposes ir_module, ir_stats, and ir_analysis. The same structured data is available from rifai inspect under stages.ir, stages.ir_pipeline, and stages.ir_analysis. Source locations, debug locals, function signatures, bytecode v1-v4 compatibility, and serialized .rbc format are preserved.
+
+Example:
+
+```python
+from rifai import Compiler, IRVerifier
+
+result = Compiler().compile("print(20 + 22);")
+assert result.is_success
+assert IRVerifier().verify(result.ir_module).is_valid
+print(result.ir_module.as_dict())
+print(result.ir_analysis.as_dict())
+```
+
+The direct IR API is documented in docs/phase11-report.md.

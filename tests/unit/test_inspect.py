@@ -24,6 +24,8 @@ def test_inspect_exports_all_pipeline_stages_as_json_safe_data() -> None:
     assert bytecode["functions"][0]["name"] == "twice"
     assert bytecode["disassembly"].startswith("Rifa'i Bytecode")
     assert bytecode["optimization"] is not None
+    assert bytecode["control_flow"]["<main>"]["block_count"] > 0
+    assert bytecode["control_flow"]["twice"]["reachable_blocks"]
     json.dumps(snapshot, ensure_ascii=False)
 
 

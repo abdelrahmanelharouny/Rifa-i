@@ -320,6 +320,9 @@ class InteractiveDebugger:
         if line is None:
             self.output_fn("No source location is available for the current instruction.")
             return
+        if not self.source:
+            self.output_fn("Source text is not embedded in this bytecode module.")
+            return
         lines = self.source.splitlines()
         first = max(1, line - self.list_context)
         last = min(len(lines), line + self.list_context)

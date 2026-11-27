@@ -2,48 +2,59 @@
 
 ## 1. Container Format
 
-The bytecode file begins with the ASCII magic header RIFAI-RBC followed by a newline, then a UTF-8 JSON payload.
+The bytecode file begins with the ASCII magic header `RIFAI-RBC` followed by a newline, then a UTF-8 JSON payload.
 
 ### Version 1
 
 Version 1 contains exactly:
-- magic: RIFAI
-- format_version: integer 1
-- source_name: string or null
-- constants: typed constant array
-- main: main code chunk
+- `magic`: `RIFAI`
+- `format_version`: integer 1
+- `source_name`: string or null
+- `constants`: typed constant array
+- `main`: main code chunk
 
 ### Version 2
 
 Version 2 contains all version 1 fields plus:
-- functions: array of function records.
+- `functions`: array of function records.
 
 A function record contains:
-- name: unique non-empty function name
-- parameter_types: ordered array of int, float, bool, or string
-- return_type: one of int, float, bool, string, or void
-- chunk: executable code chunk
+- `name`: unique non-empty function name
+- `parameter_types`: ordered array of int, float, bool, or string
+- `return_type`: one of int, float, bool, string, or void
+- `chunk`: executable code chunk
 
-The serializer writes version 2 by default and retains a version 1 writer for compatibility tooling. The reader accepts versions 1 and 2 and rejects unsupported versions. Constants are tagged as int, float, bool, or string; non-finite floats are forbidden. JSON keys must be unique. The maximum file size is 16 MiB.
+### Version 3
+
+Version 3 contains all version 2 fields plus:
+- `debug_info`: an object or null.
+
+The `debug_info` object contains:
+- `source_text`: original UTF-8 source text or null.
+- `local_symbols`: an array of per-chunk records. Each record has `chunk` (the main/function chunk name) and `locals`. Each local entry stores `slot` (zero-based local slot), `name` (source identifier), and `type` (static language type).
+
+Debug metadata is optional for hand-authored bytecode, but compiler-produced source programs embed it by default. Embedded source text is limited to 8 Mi characters and the complete bytecode file is limited to 16 MiB. The verifier rejects unknown chunks, duplicate chunk entries, duplicate slots, invalid names/types, and slots outside their owning chunk. Metadata is informational and does not affect VM execution semantics.
+
+The serializer writes version 3 by default and retains v1/v2 writers for compatibility tooling. The reader accepts versions 1, 2, and 3 and rejects unsupported versions. Constants are tagged as int, float, bool, or string; non-finite floats are forbidden. JSON keys must be unique.
 
 ## 2. Code Chunks and Frames
 
 A code chunk contains:
-- name: non-empty name (<main> for the main program)
-- arity: non-negative integer
-- local_count: number of local slots
-- instructions: ordered instruction array
+- `name`: non-empty name (`<main>` for the main program)
+- `arity`: non-negative integer
+- `local_count`: number of local slots
+- `instructions`: ordered instruction array
 
 For a function chunk, arity must equal the length of its parameter signature and local_count must be at least arity. The first arity slots hold parameters in declaration order. Other locals use the remaining zero-based slots.
 
-Version 1 modules contain only the main chunk. Version 2 modules contain one main chunk and zero or more function chunks.
+Version 1 modules contain only the main chunk. Version 2 and 3 modules contain one main chunk and zero or more function chunks.
 
 ## 3. Instruction Encoding
 
 Each instruction contains:
-- opcode: exact opcode name
-- operand: integer, string, or null according to the opcode contract
-- location: optional source location (line, column, start_offset, end_offset)
+- `opcode`: exact opcode name
+- `operand`: integer, string, or null according to the opcode contract
+- `location`: optional source location (line, column, start_offset, end_offset)
 
 Jump targets are absolute, zero-based instruction indices within the current chunk.
 
@@ -91,16 +102,17 @@ The verifier validates the main chunk and every function chunk:
 - No reachable instruction path falling beyond the end of its chunk.
 - An empty operand stack at main HALT.
 - Valid source-map types and coordinates.
+- For v3, valid debug-metadata structure and chunk/slot references.
 - Structural caps on constant count, function count, instruction count, local slots, and constant-string size.
 
 Runtime checks remain necessary for dynamic value types, uninitialized locals, undefined globals, zero division, finite floating-point results, and execution/stack/call-depth, integer-size, string-size, and captured-output limits.
 
 ## 5. Compiler Optimization
 
-The compiler optionally runs a conservative optimization pass on the generated module (enabled by default). It folds pure constant unary/binary operations, removes unreferenced constants, deduplicates constants by exact type and value, and removes the neutral DUP/POP pair. The pass is applied independently to main and function chunks.
+The compiler optionally runs a conservative optimization pass on the generated module (enabled by default). It folds pure constant unary/binary operations, removes unreferenced constants, deduplicates constants by exact type and value, and removes the neutral DUP/POP pair. The pass is applied independently to main and function chunks. It preserves the local-slot debug table because optimization does not renumber locals.
 
-The optimizer compacts folded expressions and no-op pairs, remapping absolute jump targets to the new instruction indices. It refuses to fold any range entered by a jump at an interior instruction, and preserves DUP/POP pairs targeted by jumps. Operations that can fail at runtime, such as division or modulo by zero, are not folded. Expressions outside compile-time folding bounds remain in bytecode. Optimization can be disabled for debugging or benchmarking using the CLI --no-optimize flag.
+The optimizer compacts folded expressions and no-op pairs, remapping absolute jump targets to the new instruction indices. It refuses to fold any range entered by a jump at an interior instruction, and preserves DUP/POP pairs targeted by jumps. Operations that can fail at runtime, such as division or modulo by zero, are not folded. Expressions outside compile-time folding bounds remain in bytecode. Optimization can be disabled for debugging or benchmarking using the CLI `--no-optimize` flag.
 
 ## 6. Compatibility and Versioning
 
-Version 1 modules remain readable and executable if they use the original main-chunk instruction set. Version 2 adds CALL, RETURN, and the function table. The serializer writes version 2 by default. Phase 5 does not change the bytecode wire format; any future incompatible change must increment the format version and define an explicit compatibility policy.
+Version 1 modules remain readable and executable if they use the original main-chunk instruction set. Version 2 adds CALL, RETURN, and the function table. Version 3 adds optional embedded debug metadata without changing executable instructions. Existing v1/v2 modules remain supported; future incompatible instruction/container changes must increment the format version and define an explicit compatibility policy.

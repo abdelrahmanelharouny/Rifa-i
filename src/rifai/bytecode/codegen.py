@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 
 from rifai.bytecode.chunk import BytecodeFunction, CodeChunk
 from rifai.bytecode.instructions import Instruction, Opcode, SourceLocation
-from rifai.bytecode.module import BytecodeModule
+from rifai.bytecode.module import BytecodeDebugInfo, BytecodeDebugLocal, BytecodeModule
 from rifai.errors.diagnostics import Diagnostic, DiagnosticPhase
 from rifai.frontend.ast_nodes import (
     ASTNode,
@@ -83,6 +83,7 @@ class CodeGenerator:
         semantic: SemanticResult,
         *,
         source_name: str | None = None,
+        source_text: str | None = None,
     ) -> CodeGenerationResult:
         """Generate a module from an AST and its matching semantic result."""
         self._constants = []
@@ -122,11 +123,25 @@ class CodeGenerator:
         if self._diagnostics:
             return CodeGenerationResult(None, tuple(self._diagnostics))
 
+        debug_info = BytecodeDebugInfo(
+            source_text=source_text,
+            local_symbols=tuple(
+                (
+                    chunk_name,
+                    tuple(
+                        BytecodeDebugLocal(slot, name, type_name)
+                        for slot, (name, type_name) in sorted(symbols.items())
+                    ),
+                )
+                for chunk_name, symbols in sorted(self._debug_symbols.items())
+            ),
+        )
         module = BytecodeModule(
             constants=tuple(self._constants),
             main=main,
             source_name=source_name,
             functions=tuple(functions),
+            debug_info=debug_info,
         )
         return CodeGenerationResult(module, (), dict(self._debug_symbols))
 

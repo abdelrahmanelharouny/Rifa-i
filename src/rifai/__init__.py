@@ -1,6 +1,8 @@
 """Rifa'i compiler and Virtual Machine package."""
 
 from rifai.bytecode import (
+    BytecodeDebugInfo,
+    BytecodeDebugLocal,
     BytecodeFunction,
     BytecodeModule,
     BytecodeOptimizer,
@@ -33,9 +35,11 @@ from rifai.vm import (
     VMRuntimeError,
 )
 
-__version__ = "0.7.0"
+__version__ = "0.8.0"
 
 __all__ = [
+    "BytecodeDebugInfo",
+    "BytecodeDebugLocal",
     "BytecodeFunction",
     "BytecodeModule",
     "BytecodeOptimizer",

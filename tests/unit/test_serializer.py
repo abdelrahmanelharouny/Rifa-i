@@ -154,3 +154,10 @@ def test_reads_and_executes_legacy_version_one_modules():
     assert decoded.format_version == LEGACY_FORMAT_VERSION
     assert decoded == legacy
     assert VirtualMachine().execute(decoded).output == ("42",)
+
+
+def test_rejects_boolean_as_bytecode_format_version():
+    from dataclasses import replace
+
+    with pytest.raises(BytecodeFormatError, match="Cannot write bytecode version"):
+        BytecodeSerializer.to_bytes(replace(sample_module(), format_version=True))

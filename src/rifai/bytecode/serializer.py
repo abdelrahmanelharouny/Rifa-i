@@ -11,14 +11,18 @@ import tempfile
 from rifai.bytecode.chunk import BytecodeFunction, CodeChunk
 from rifai.bytecode.instructions import Instruction, Opcode, SourceLocation
 from rifai.bytecode.module import (
+    BytecodeDebugInfo,
+    BytecodeDebugLocal,
     BytecodeModule,
     FORMAT_VERSION,
+    FUNCTIONS_FORMAT_VERSION,
     LEGACY_FORMAT_VERSION,
     MAGIC,
     is_constant,
 )
 
 MAX_BYTECODE_SIZE = 16 * 1024 * 1024
+MAX_DEBUG_SOURCE_CHARS = 8 * 1024 * 1024
 
 
 class BytecodeFormatError(ValueError):
@@ -175,6 +179,83 @@ def _function_from_json(raw: object) -> BytecodeFunction:
     )
 
 
+def _debug_info_to_json(info: BytecodeDebugInfo | None) -> dict[str, object] | None:
+    if info is None:
+        return None
+    if not isinstance(info, BytecodeDebugInfo):
+        raise BytecodeFormatError("Module debug_info has an invalid type.")
+    if info.source_text is not None and (
+        not isinstance(info.source_text, str)
+        or len(info.source_text) > MAX_DEBUG_SOURCE_CHARS
+    ):
+        raise BytecodeFormatError("Embedded debug source is invalid or exceeds the size limit.")
+    if not isinstance(info.local_symbols, tuple):
+        raise BytecodeFormatError("Debug local-symbol table must be an immutable tuple.")
+    chunks: list[dict[str, object]] = []
+    seen_chunks: set[str] = set()
+    for chunk_name, symbols in info.local_symbols:
+        if (
+            not isinstance(chunk_name, str) or not chunk_name
+            or chunk_name in seen_chunks or not isinstance(symbols, tuple)
+        ):
+            raise BytecodeFormatError("Malformed or duplicate debug chunk metadata.")
+        seen_chunks.add(chunk_name)
+        locals_payload: list[dict[str, object]] = []
+        seen_slots: set[int] = set()
+        for symbol in symbols:
+            if not isinstance(symbol, BytecodeDebugLocal):
+                raise BytecodeFormatError("Malformed debug local-symbol entry.")
+            if (
+                type(symbol.slot) is not int or symbol.slot < 0
+                or symbol.slot in seen_slots
+                or not isinstance(symbol.name, str) or not symbol.name
+                or not isinstance(symbol.type_name, str)
+                or symbol.type_name not in {"int", "float", "bool", "string"}
+            ):
+                raise BytecodeFormatError("Invalid or duplicate debug local-symbol entry.")
+            seen_slots.add(symbol.slot)
+            locals_payload.append({
+                "slot": symbol.slot,
+                "name": symbol.name,
+                "type": symbol.type_name,
+            })
+        chunks.append({"chunk": chunk_name, "locals": locals_payload})
+    return {"source_text": info.source_text, "local_symbols": chunks}
+
+
+def _debug_info_from_json(raw: object) -> BytecodeDebugInfo | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, dict) or set(raw) != {"source_text", "local_symbols"}:
+        raise BytecodeFormatError("Malformed embedded debug metadata.")
+    source_text = raw["source_text"]
+    if source_text is not None and (
+        not isinstance(source_text, str)
+        or len(source_text) > MAX_DEBUG_SOURCE_CHARS
+    ):
+        raise BytecodeFormatError("Embedded debug source is invalid or exceeds the size limit.")
+    raw_chunks = raw["local_symbols"]
+    if not isinstance(raw_chunks, list):
+        raise BytecodeFormatError("Debug local-symbol table must be an array.")
+    chunks: list[tuple[str, tuple[BytecodeDebugLocal, ...]]] = []
+    for chunk in raw_chunks:
+        if not isinstance(chunk, dict) or set(chunk) != {"chunk", "locals"}:
+            raise BytecodeFormatError("Malformed debug chunk metadata.")
+        chunk_name, raw_locals = chunk["chunk"], chunk["locals"]
+        if not isinstance(chunk_name, str) or not isinstance(raw_locals, list):
+            raise BytecodeFormatError("Malformed debug chunk metadata.")
+        symbols: list[BytecodeDebugLocal] = []
+        for item in raw_locals:
+            if not isinstance(item, dict) or set(item) != {"slot", "name", "type"}:
+                raise BytecodeFormatError("Malformed debug local-symbol entry.")
+            slot, name, type_name = item["slot"], item["name"], item["type"]
+            if type(slot) is not int or not isinstance(name, str) or not isinstance(type_name, str):
+                raise BytecodeFormatError("Debug local-symbol fields have invalid types.")
+            symbols.append(BytecodeDebugLocal(slot, name, type_name))
+        chunks.append((chunk_name, tuple(symbols)))
+    return BytecodeDebugInfo(source_text, tuple(chunks))
+
+
 def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
     result: dict[str, object] = {}
     for key, value in pairs:
@@ -185,34 +266,45 @@ def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
 
 
 class BytecodeSerializer:
-    """Encode and decode legacy version 1 and function-capable version 2 modules."""
+    """Encode and decode bytecode versions 1, 2, and 3.
+
+    Version 1 stores a main chunk, version 2 adds function chunks, and version
+    3 adds optional embedded source and local-symbol metadata. Older versions
+    remain readable and can still be executed.
+    """
 
     @staticmethod
     def to_bytes(module: BytecodeModule) -> bytes:
         if not isinstance(module, BytecodeModule):
             raise TypeError("module must be a BytecodeModule.")
-        if module.format_version not in (LEGACY_FORMAT_VERSION, FORMAT_VERSION):
+        if type(module.format_version) is not int or module.format_version not in (
+            LEGACY_FORMAT_VERSION, FUNCTIONS_FORMAT_VERSION, FORMAT_VERSION
+        ):
             raise BytecodeFormatError(
                 f"Cannot write bytecode version {module.format_version}; "
-                f"supported versions are {LEGACY_FORMAT_VERSION} and {FORMAT_VERSION}."
+                "supported versions are 1, 2, and 3."
             )
-        if module.format_version == LEGACY_FORMAT_VERSION and module.functions:
+        if module.format_version < FUNCTIONS_FORMAT_VERSION and module.functions:
             raise BytecodeFormatError("Version 1 bytecode cannot contain function chunks.")
+        if module.format_version < FORMAT_VERSION and module.debug_info is not None:
+            raise BytecodeFormatError("Embedded debug metadata requires bytecode version 3.")
         if any(not is_constant(value) for value in module.constants):
             raise BytecodeFormatError("Module contains an unsupported constant.")
 
         try:
-            payload = {
+            payload: dict[str, object] = {
                 "magic": "RIFAI",
                 "format_version": module.format_version,
                 "source_name": module.source_name,
                 "constants": [_constant_to_json(value) for value in module.constants],
                 "main": _chunk_to_json(module.main),
             }
-            if module.format_version >= FORMAT_VERSION:
+            if module.format_version >= FUNCTIONS_FORMAT_VERSION:
                 payload["functions"] = [
                     _function_to_json(function) for function in module.functions
                 ]
+            if module.format_version >= FORMAT_VERSION:
+                payload["debug_info"] = _debug_info_to_json(module.debug_info)
             encoded = json.dumps(
                 payload,
                 ensure_ascii=False,
@@ -252,19 +344,17 @@ class BytecodeSerializer:
             raise BytecodeFormatError("Bytecode module has an invalid top-level structure.")
         version = payload.get("format_version")
         if type(version) is not int or version not in (
-            LEGACY_FORMAT_VERSION,
-            FORMAT_VERSION,
+            LEGACY_FORMAT_VERSION, FUNCTIONS_FORMAT_VERSION, FORMAT_VERSION
         ):
             raise BytecodeFormatError(
-                f"Unsupported bytecode version {version!r}; "
-                f"supported versions are {LEGACY_FORMAT_VERSION} and {FORMAT_VERSION}."
+                f"Unsupported bytecode version {version!r}; supported versions are 1, 2, and 3."
             )
 
-        expected_fields = (
-            {"magic", "format_version", "source_name", "constants", "main"}
-            if version == LEGACY_FORMAT_VERSION
-            else {"magic", "format_version", "source_name", "constants", "main", "functions"}
-        )
+        expected_fields = {"magic", "format_version", "source_name", "constants", "main"}
+        if version >= FUNCTIONS_FORMAT_VERSION:
+            expected_fields.add("functions")
+        if version >= FORMAT_VERSION:
+            expected_fields.add("debug_info")
         if set(payload) != expected_fields:
             raise BytecodeFormatError("Bytecode module has an invalid top-level structure.")
         if payload["magic"] != "RIFAI":
@@ -282,12 +372,14 @@ class BytecodeSerializer:
         if not isinstance(raw_functions, list):
             raise BytecodeFormatError("Function table must be an array.")
         functions = tuple(_function_from_json(item) for item in raw_functions)
+        debug_info = _debug_info_from_json(payload.get("debug_info"))
         return BytecodeModule(
             constants=constants,
             main=main,
             source_name=source_name,
             format_version=version,
             functions=functions,
+            debug_info=debug_info,
         )
 
     @classmethod

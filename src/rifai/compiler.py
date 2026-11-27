@@ -60,6 +60,7 @@ class Compiler:
             parse_result.program,
             semantic_result,
             source_name=source_name,
+            source_text=source,
         )
         if not generation.is_success or generation.module is None:
             return CompilationResult(None, generation.diagnostics)
@@ -74,4 +75,5 @@ class Compiler:
         validation = BytecodeVerifier().verify(module)
         if not validation.is_valid:
             return CompilationResult(None, validation.diagnostics, optimization)
-        return CompilationResult(module, (), optimization, generation.debug_symbols)
+        symbols = module.debug_info.as_mapping() if module.debug_info else generation.debug_symbols
+        return CompilationResult(module, (), optimization, symbols)

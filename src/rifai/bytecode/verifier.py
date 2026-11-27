@@ -15,8 +15,11 @@ from rifai.bytecode.instructions import (
     stack_requirement,
 )
 from rifai.bytecode.module import (
+    BytecodeDebugInfo,
+    BytecodeDebugLocal,
     BytecodeModule,
     FORMAT_VERSION,
+    FUNCTIONS_FORMAT_VERSION,
     LEGACY_FORMAT_VERSION,
     is_constant,
 )
@@ -29,6 +32,7 @@ MAX_FUNCTION_COUNT = 100_000
 MAX_INSTRUCTIONS_PER_CHUNK = 1_000_000
 MAX_LOCAL_COUNT = 100_000
 MAX_CONSTANT_STRING_CHARS = 16 * 1024 * 1024
+MAX_DEBUG_SOURCE_CHARS = 8 * 1024 * 1024
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,6 +75,7 @@ class BytecodeVerifier:
             return BytecodeValidationResult(tuple(diagnostics))
         if type(module.format_version) is not int or module.format_version not in (
             LEGACY_FORMAT_VERSION,
+            FUNCTIONS_FORMAT_VERSION,
             FORMAT_VERSION,
         ):
             report(f"Unsupported bytecode version {module.format_version!r}.")
@@ -100,8 +105,82 @@ class BytecodeVerifier:
         if len(module.functions) > MAX_FUNCTION_COUNT:
             report(f"Function table exceeds the limit ({MAX_FUNCTION_COUNT}).")
             return BytecodeValidationResult(tuple(diagnostics))
-        if module.format_version == LEGACY_FORMAT_VERSION and module.functions:
+        supports_functions = (
+            type(module.format_version) is int
+            and module.format_version >= FUNCTIONS_FORMAT_VERSION
+        )
+        supports_debug_info = (
+            type(module.format_version) is int
+            and module.format_version >= FORMAT_VERSION
+        )
+        if not supports_functions and module.functions:
             report("Version 1 bytecode cannot contain function chunks.")
+        if not supports_debug_info and module.debug_info is not None:
+            report("Embedded debug metadata requires bytecode version 3.")
+        if module.debug_info is not None:
+            info = module.debug_info
+            if not isinstance(info, BytecodeDebugInfo):
+                report("Module debug_info has an invalid type.")
+            else:
+                if info.source_text is not None:
+                    if not isinstance(info.source_text, str):
+                        report("Embedded debug source must be a string or null.")
+                    elif len(info.source_text) > MAX_DEBUG_SOURCE_CHARS:
+                        report("Embedded debug source exceeds the size limit.")
+                chunk_limits: dict[str, int | None] = {
+                    "<main>": (
+                        module.main.local_count
+                        if type(module.main.local_count) is int
+                        else None
+                    )
+                }
+                for item in module.functions:
+                    if isinstance(item, BytecodeFunction) and isinstance(item.chunk, CodeChunk):
+                        chunk_limits[item.name] = (
+                            item.chunk.local_count
+                            if type(item.chunk.local_count) is int
+                            else None
+                        )
+                if not isinstance(info.local_symbols, tuple):
+                    report("Debug local-symbol table must be an immutable tuple.")
+                else:
+                    seen_chunks: set[str] = set()
+                    for entry in info.local_symbols:
+                        if not isinstance(entry, tuple) or len(entry) != 2:
+                            report("Debug chunk metadata entry is malformed.")
+                            continue
+                        chunk_name, symbols = entry
+                        if not isinstance(chunk_name, str) or chunk_name not in chunk_limits:
+                            report("Debug metadata references an unknown code chunk.")
+                            continue
+                        if chunk_name in seen_chunks:
+                            report(f"Duplicate debug metadata for chunk '{chunk_name}'.")
+                            continue
+                        seen_chunks.add(chunk_name)
+                        if not isinstance(symbols, tuple):
+                            report(f"Debug symbols for '{chunk_name}' must be an immutable tuple.")
+                            continue
+                        seen_slots: set[int] = set()
+                        for symbol in symbols:
+                            if not isinstance(symbol, BytecodeDebugLocal):
+                                report(f"Debug metadata for '{chunk_name}' contains an invalid local.")
+                                continue
+                            chunk_size = chunk_limits[chunk_name]
+                            if (
+                                type(symbol.slot) is not int
+                                or symbol.slot < 0
+                                or chunk_size is None
+                                or symbol.slot >= chunk_size
+                            ):
+                                report(f"Debug local slot in '{chunk_name}' is out of range.")
+                            elif symbol.slot in seen_slots:
+                                report(f"Duplicate debug local slot {symbol.slot} in '{chunk_name}'.")
+                            else:
+                                seen_slots.add(symbol.slot)
+                            if not isinstance(symbol.name, str) or not symbol.name:
+                                report(f"Debug local in '{chunk_name}' has an invalid name.")
+                            if not isinstance(symbol.type_name, str) or symbol.type_name not in _ALLOWED_VALUE_TYPES:
+                                report(f"Debug local in '{chunk_name}' has an invalid type.")
 
         function_by_name: dict[str, BytecodeFunction] = {}
         seen_function_names: set[str] = set()
@@ -266,7 +345,7 @@ class BytecodeVerifier:
                         report(f"Jump target {operand} is out of range at instruction {index}.", instruction)
                         continue
                 elif opcode is Opcode.CALL:
-                    if module.format_version < FORMAT_VERSION or operand not in function_by_name:
+                    if not supports_functions or operand not in function_by_name:
                         report(f"Call target '{operand}' does not exist in this bytecode module.", instruction)
                         continue
                 elif opcode is Opcode.HALT and not is_main:

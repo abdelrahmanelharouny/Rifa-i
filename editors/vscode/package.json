@@ -1,15 +1,15 @@
 {
   "name": "rifai-language",
   "displayName": "Rifa'i Language Support",
-  "description": "Language support and Language Server integration for the Rifa'i programming language.",
-  "version": "0.6.0",
+  "description": "Language support, Language Server, and source debugger for the Rifa'i programming language.",
+  "version": "0.8.0",
   "publisher": "abdelrahmanelharouny",
   "license": "MIT",
   "engines": { "vscode": "^1.85.0" },
-  "categories": ["Programming Languages", "Other"],
-  "keywords": ["rifai", "language", "compiler", "language-server"],
+  "categories": ["Programming Languages", "Debuggers", "Other"],
+  "keywords": ["rifai", "language", "compiler", "language-server", "debugger"],
   "main": "./extension.js",
-  "activationEvents": ["onLanguage:rifai"],
+  "activationEvents": ["onLanguage:rifai", "onDebug:rifai"],
   "contributes": {
     "languages": [
       {
@@ -29,13 +29,53 @@
     "snippets": [
       { "language": "rifai", "path": "./snippets/rifai.json" }
     ],
+    "debuggers": [
+      {
+        "type": "rifai",
+        "label": "Rifa'i Debugger",
+        "languages": ["rifai"],
+        "configurationAttributes": {
+          "launch": {
+            "required": ["program"],
+            "properties": {
+              "program": {
+                "type": "string",
+                "description": "Absolute path to a .rif source file or .rbc bytecode module."
+              },
+              "stopOnEntry": {
+                "type": "boolean",
+                "default": true,
+                "description": "Pause before executing the first instruction."
+              },
+              "noOptimize": {
+                "type": "boolean",
+                "default": false,
+                "description": "Compile .rif input without bytecode optimization to preserve direct stepping."
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "rifai",
+            "request": "launch",
+            "name": "Debug current Rifa'i file",
+            "program": "${file}",
+            "stopOnEntry": true
+          }
+        ]
+      }
+    ],
+    "breakpoints": [
+      { "language": "rifai" }
+    ],
     "configuration": {
       "title": "Rifa'i",
       "properties": {
         "rifai.serverPath": {
           "type": "string",
           "default": "rifai",
-          "description": "Executable used to start the Rifa'i Language Server. The extension launches it with the lsp argument."
+          "description": "Executable used to start the Rifa'i Language Server and Debug Adapter. The extension passes lsp or debug-adapter as the subcommand."
         }
       }
     }

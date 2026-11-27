@@ -330,8 +330,11 @@ class BytecodeToIR:
         heights: dict[int, int] = {}
 
         def minimum_entry_height(block) -> int:
-            height = 0
-            initial = 0
+            # A disconnected function epilogue can contain an unreachable
+            # value-return instruction; reserve one abstract return slot for
+            # non-void functions when seeding an unreachable island.
+            height = 1 if return_type != "void" else 0
+            initial = height
             for index in range(block.start, block.end + 1):
                 instruction = chunk.instructions[index]
                 required, produced = _stack_effect(instruction, functions, return_type)

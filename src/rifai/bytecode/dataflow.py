@@ -759,9 +759,15 @@ def optimize_module_dataflow(module: BytecodeModule) -> DataFlowResult:
         if current == before:
             break
 
+    # CSE introduces private local slots. Only perform it when the module
+    # carries embedded debug metadata so those slots can be marked and future
+    # optimizer runs can recognize them without changing legacy formats.
+    if current.debug_info is None:
+        return DataFlowResult(current, stats)
+
     # CSE is block-local by design. A cache never crosses a control-flow merge,
-    # loop boundary, global write, or function call.
-    debug_maps = current.debug_info.as_mapping() if current.debug_info else {}
+    # loop boundary, collection operation, or function call.
+    debug_maps = current.debug_info.as_mapping()
     all_temp_types: dict[str, tuple[tuple[int, str], ...]] = {}
     cse_hits = 0
     main_cse_slots = {

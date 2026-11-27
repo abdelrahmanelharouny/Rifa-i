@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from rifai.bytecode.codegen import CodeGenerator
 from rifai.bytecode.module import BytecodeModule
@@ -21,6 +21,7 @@ class CompilationResult:
     module: BytecodeModule | None
     diagnostics: tuple[Diagnostic, ...]
     optimization: OptimizationStats | None = None
+    debug_symbols: dict[str, dict[int, tuple[str, str]]] = field(default_factory=dict)
 
     @property
     def is_success(self) -> bool:
@@ -73,4 +74,4 @@ class Compiler:
         validation = BytecodeVerifier().verify(module)
         if not validation.is_valid:
             return CompilationResult(None, validation.diagnostics, optimization)
-        return CompilationResult(module, (), optimization)
+        return CompilationResult(module, (), optimization, generation.debug_symbols)

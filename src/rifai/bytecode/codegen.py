@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from rifai.bytecode.chunk import BytecodeFunction, CodeChunk
 from rifai.bytecode.instructions import Instruction, Opcode, SourceLocation
@@ -42,6 +42,7 @@ class CodeGenerationResult:
 
     module: BytecodeModule | None
     diagnostics: tuple[Diagnostic, ...]
+    debug_symbols: dict[str, dict[int, tuple[str, str]]] = field(default_factory=dict)
 
     @property
     def is_success(self) -> bool:
@@ -73,6 +74,7 @@ class CodeGenerator:
         self._diagnostics: list[Diagnostic] = []
         self._instructions: list[Instruction] = []
         self._slots: dict[int, int] = {}
+        self._debug_symbols: dict[str, dict[int, tuple[str, str]]] = {}
         self._current_function: str | None = None
 
     def generate(
@@ -86,6 +88,7 @@ class CodeGenerator:
         self._constants = []
         self._constant_indices = {}
         self._diagnostics = []
+        self._debug_symbols = {}
 
         if not semantic.is_valid:
             return CodeGenerationResult(None, semantic.diagnostics)
@@ -103,6 +106,7 @@ class CodeGenerator:
             if not isinstance(declaration, FunctionDeclaration)
         )
         self._slots = self._allocate_slots(main_statements, semantic, ())
+        self._debug_symbols["<main>"] = self._describe_slots(self._slots, semantic)
         self._current_function = None
         self._instructions = []
         for statement in main_statements:
@@ -124,7 +128,7 @@ class CodeGenerator:
             source_name=source_name,
             functions=tuple(functions),
         )
-        return CodeGenerationResult(module, ())
+        return CodeGenerationResult(module, (), dict(self._debug_symbols))
 
     def _compile_function(
         self,
@@ -149,6 +153,7 @@ class CodeGenerator:
             semantic,
             tuple(parameter_symbols),
         )
+        self._debug_symbols[declaration.name] = self._describe_slots(self._slots, semantic)
         self._current_function = declaration.name
         self._instructions = []
         for statement in declaration.body.statements:
@@ -198,6 +203,22 @@ class CodeGenerator:
                 if isinstance(node, (VariableDeclaration, AssignmentStatement, VariableExpression)):
                     add(semantic.variable_bindings.get(id(node)))
         return slots
+
+    @staticmethod
+    def _describe_slots(
+        slots: dict[int, int],
+        semantic: SemanticResult,
+    ) -> dict[int, tuple[str, str]]:
+        """Build source-level local names for debugger views without changing bytecode."""
+        symbols = {
+            id(symbol): symbol
+            for symbol in semantic.variable_bindings.values()
+        }
+        return {
+            slot: (symbols[symbol_id].name, symbols[symbol_id].rifai_type.value)
+            for symbol_id, slot in slots.items()
+            if symbol_id in symbols
+        }
 
     @staticmethod
     def _walk(root: ASTNode):

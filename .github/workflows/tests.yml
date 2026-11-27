@@ -40,6 +40,12 @@ jobs:
           rifai inspect examples/hello.rif --output /tmp/rifai-inspect.json
           python -c "import json; p=json.load(open('/tmp/rifai-inspect.json', encoding='utf-8')); assert p['success'] and p['stages']['bytecode']['format_version'] == 2"
 
+      - name: Verify interactive debugger smoke test
+        run: |
+          printf '%s\n' continue continue | rifai debug examples/phase7_debugger.rif --breakpoint 2 > /tmp/rifai-debug.txt
+          python -c "from pathlib import Path; text=Path('/tmp/rifai-debug.txt').read_text(encoding='utf-8'); assert 'Paused (entry)' in text and 'Paused (breakpoint)' in text and 'Execution finished:' in text"
+
+
       - name: Validate VS Code extension manifests
         run: |
           python -c "import json; from pathlib import Path; files=['editors/vscode/package.json','editors/vscode/language-configuration.json','editors/vscode/syntaxes/rifai.tmLanguage.json','editors/vscode/snippets/rifai.json']; [json.loads(Path(p).read_text(encoding='utf-8')) for p in files]"

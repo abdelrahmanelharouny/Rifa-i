@@ -22,9 +22,18 @@ from rifai.frontend.parser import Parser, ParseResult
 from rifai.frontend.semantic import SemanticAnalyzer, SemanticResult
 from rifai.frontend.tokens import KEYWORDS, Token, TokenType
 from rifai.frontend.types import RifaiType
-from rifai.vm import ExecutionResult, VirtualMachine, VMRuntimeError
+from rifai.vm import (
+    DebugFrameSnapshot,
+    DebugLocalSnapshot,
+    DebuggerResult,
+    ExecutionResult,
+    InstructionSnapshot,
+    InteractiveDebugger,
+    VirtualMachine,
+    VMRuntimeError,
+)
 
-__version__ = "0.6.0"
+__version__ = "0.7.0"
 
 __all__ = [
     "BytecodeFunction",
@@ -38,8 +47,13 @@ __all__ = [
     "Compiler",
     "Diagnostic",
     "DiagnosticPhase",
+    "DebugFrameSnapshot",
+    "DebugLocalSnapshot",
+    "DebuggerResult",
     "ExecutionResult",
     "Instruction",
+    "InstructionSnapshot",
+    "InteractiveDebugger",
     "KEYWORDS",
     "LexResult",
     "Lexer",

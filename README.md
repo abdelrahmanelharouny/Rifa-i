@@ -10,6 +10,7 @@ Rifa'i (.rif) is a custom statically typed programming language implemented in P
 - **Phase 4 — Code Generation and Full Execution (Complete):** AST-to-bytecode compiler, globals and local slots, control flow, function chunks, call frames, recursion, end-to-end source compilation, and compile / run CLI commands.
 - **Phase 5 — Optimization and Final Hardening (Complete):** Conservative bytecode optimization, bounded VM resources, hardened bytecode validation and atomic serialization, reproducible performance benchmarks, final examples, and delivery documentation.
 - **Phase 6 — Developer Experience (Complete):** stdio Language Server Protocol implementation, VS Code language extension, live diagnostics, completion, hover, definition/references, document symbols, signature help, and structured compiler-pipeline inspection.
+- **Phase 7 — Interactive Debugger (Complete):** Source-mapped breakpoints, step into/over/out, instruction stepping, live locals/globals/operand-stack inspection, call-stack backtraces, and source-level local variable names without changing the bytecode format.
 
 ## Quick Start
 
@@ -32,6 +33,9 @@ python -m rifai run examples/phase5_optimization.rbc
 
 # Inspect compiled bytecode
 python -m rifai disasm examples/phase5_optimization.rbc
+
+# Debug source execution with the interactive debugger
+rifai debug examples/phase7_debugger.rif --breakpoint 3
 
 # Export the complete compiler pipeline as structured JSON
 rifai inspect examples/hello.rif -o hello.inspect.json
@@ -58,6 +62,7 @@ python -m pytest -v
 | rifai disasm file.rbc | Verify and disassemble bytecode |
 | rifai vm file.rbc | Execute an existing bytecode module |
 | rifai inspect file.rif [-o report.json] [--no-optimize] | Export tokens, AST, semantic bindings, bytecode, and optimization data as JSON |
+| rifai debug file.rif [-b line] [--no-optimize] | Start the interactive source debugger |
 | rifai lsp | Start the stdio Language Server |
 
 ## Phase 5: Optimization
@@ -102,3 +107,25 @@ The VS Code extension lives in [editors/vscode](editors/vscode). It provides `.r
 Use `rifai inspect examples/hello.rif -o hello.inspect.json` to export a versioned JSON snapshot containing tokens and source offsets, the structured AST, global semantic symbols, inferred expression types, constants, main and function bytecode chunks, disassembly, optimization statistics, and source diagnostics. The schema is designed as a stable foundation for an interactive Compiler Explorer or Rifa'i Studio frontend.
 
 Editor integration details and packaging instructions are documented in [editors/vscode/README.md](editors/vscode/README.md) and [docs/phase6-report.md](docs/phase6-report.md).
+
+
+## Phase 7: Interactive Debugger
+
+Run **rifai debug program.rif** to start a source-aware debugging session. The debugger pauses before the first instruction and accepts commands at the `(rifai-debug)` prompt. Add one or more initial line breakpoints with `-b 12` or `--breakpoint 12`.
+
+| Command | Action |
+|---|---|
+| `continue` / `c` | Continue until the next breakpoint |
+| `step` / `s` | Step into the next source expression or function call |
+| `next` / `n` | Step over the current source expression or call |
+| `out` / `finish` | Run until the current function returns |
+| `stepi` | Execute one bytecode instruction |
+| `break 12` / `delete 12` | Add or remove a source-line breakpoint |
+| `locals`, `globals`, `stack` | Inspect current variables and operand stack |
+| `backtrace` / `bt` | Inspect active function call frames |
+| `list`, `where` | Show nearby source and current instruction |
+| `help`, `quit` | Show commands or stop debugging |
+
+The VM exposes an optional immutable pre-instruction observer API. The compiler carries source-level local names and types as transient debug metadata alongside a compilation result; this metadata is not serialized into `.rbc`, so bytecode v1/v2 compatibility and the file format remain unchanged. Source-level debugging is therefore available for `.rif` inputs compiled in the current process. When optimization is disabled with `--no-optimize`, stepping follows the direct code-generator instruction sequence, which is useful when investigating compiler output.
+
+See [docs/phase7-report.md](docs/phase7-report.md) for implementation notes and limitations.

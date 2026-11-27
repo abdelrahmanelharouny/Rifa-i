@@ -40,10 +40,14 @@ No opcode, VM behavior, serialized bytecode version, or .rbc container format is
 
 Run the example:
 
-    rifai run examples/phase12_ir_optimization.rif --no-optimize
-    rifai inspect examples/phase12_ir_optimization.rif --no-optimize -o phase12.inspect.json
+    rifai run examples/phase12_ir_optimization.rif
+    rifai inspect examples/phase12_ir_optimization.rif -o phase12.inspect.json
 
-The inspection output includes stages.ir, stages.ir_pipeline, and stages.ir_analysis. The IR pipeline metrics now report constant_folds, branches_simplified, blocks_removed, and block_parameter_constants.
+The inspection output includes stages.ir, stages.ir_pipeline, and stages.ir_analysis. The IR pipeline metrics report constant_folds, branches_simplified, blocks_removed, and block_parameter_constants. The --no-optimize flag disables both bytecode and IR transformations. To isolate Phase 12 while bypassing the earlier bytecode optimizer, use Compiler(optimize=False, ir_optimize=True).
+
+## Optimization Controls
+
+Compiler(optimize=False) and the CLI --no-optimize flag disable both optimization layers while keeping IR verification and analysis active. The optional ir_optimize argument can explicitly override IR optimization, allowing bytecode-only or IR-only comparisons without changing the default compiler behavior.
 
 ## Validation
 

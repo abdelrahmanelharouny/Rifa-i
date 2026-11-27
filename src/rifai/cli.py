@@ -166,6 +166,13 @@ def _run_compile_command(
             f"{stats.folded_expressions} expression(s) folded, "
             f"{stats.constants_before} -> {stats.constants_after} constant(s)."
         )
+        print(
+            "Advanced optimization: "
+            f"{stats.constant_loads_propagated} constant load(s) propagated, "
+            f"{stats.branches_folded} branch(es) folded, "
+            f"{stats.unreachable_instructions_removed} unreachable instruction(s) removed, "
+            f"{stats.common_subexpressions_eliminated} common expression(s) reused."
+        )
     return 0
 
 

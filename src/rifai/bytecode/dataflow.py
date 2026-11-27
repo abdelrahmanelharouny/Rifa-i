@@ -548,9 +548,9 @@ def _cse_chunk(
                 if cached is not None:
                     temp_slot, cached_type = cached
                     used_temp_slots.add(temp_slot)
-                    replacement_index = len(output)
                     truncate_to = old_to_new[start]
                     del output[truncate_to:]
+                    replacement_index = len(output)
                     output.append(Instruction(Opcode.LOAD_LOCAL, temp_slot, instruction.location))
                     for old_index in range(start, index + 1):
                         old_to_new[old_index] = replacement_index

@@ -38,12 +38,20 @@ class CompilationResult:
 class Compiler:
     """Compile Rifa'i source text into verified bytecode.
 
-    Optimization is enabled by default. Use Compiler(optimize=False) to obtain
-    the direct code-generator output for debugging and performance comparisons.
+    Optimization is enabled by default. Compiler(optimize=False) disables both
+    bytecode and IR optimization while retaining IR verification/analysis.
+    Set ir_optimize=True to explicitly enable only the IR optimizer, which is
+    useful for isolating and evaluating Phase 12 transformations.
     """
 
-    def __init__(self, *, optimize: bool = True) -> None:
+    def __init__(
+        self,
+        *,
+        optimize: bool = True,
+        ir_optimize: bool | None = None,
+    ) -> None:
         self.optimize = optimize
+        self.ir_optimize = optimize if ir_optimize is None else ir_optimize
 
     def compile(
         self,
@@ -81,7 +89,7 @@ class Compiler:
 
         # IR is the verified hand-off layer between source-oriented code
         # generation/optimization and the final bytecode backend.
-        ir_result = IRPipeline().run(module)
+        ir_result = IRPipeline().run(module, optimize=self.ir_optimize)
         module = ir_result.bytecode_module
 
         validation = BytecodeVerifier().verify(module)

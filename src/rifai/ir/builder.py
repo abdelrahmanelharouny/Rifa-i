@@ -291,6 +291,64 @@ class BytecodeToIR:
                 )
             )
 
+        # Infer block-parameter types from identical incoming edge values.
+        value_types = {
+            value.value_id: value.type_name
+            for ir_block in blocks
+            for value in ir_block.parameters
+        }
+        value_types.update({
+            output.value_id: output.type_name
+            for ir_block in blocks
+            for operation in ir_block.operations
+            for output in operation.outputs
+        })
+        block_map = {ir_block.block_id: ir_block for ir_block in blocks}
+        incoming_types: dict[tuple[int, int], list[str | None]] = {}
+        for ir_block in blocks:
+            term = ir_block.terminator
+            if isinstance(term, IRJump):
+                edges = ((term.target, term.arguments),)
+            elif isinstance(term, IRBranch):
+                edges = (
+                    (term.false_target, term.false_arguments),
+                    (term.true_target, term.true_arguments),
+                )
+            else:
+                edges = ()
+            if not ir_block.reachable:
+                continue
+            for target, arguments in edges:
+                target_block = block_map.get(target)
+                if target_block is None:
+                    continue
+                for position, value_id in enumerate(arguments):
+                    incoming_types.setdefault((target, position), []).append(
+                        value_types.get(value_id)
+                    )
+        typed_blocks = []
+        for ir_block in blocks:
+            typed_parameters = []
+            for position, parameter in enumerate(ir_block.parameters):
+                candidates = incoming_types.get((ir_block.block_id, position), [])
+                known = {item for item in candidates if item is not None}
+                inferred = next(iter(known)) if candidates and len(known) == 1 and all(
+                    item is not None for item in candidates
+                ) else parameter.type_name
+                typed_parameters.append(IRValue(parameter.value_id, inferred))
+            typed_blocks.append(
+                IRBlock(
+                    block_id=ir_block.block_id,
+                    parameters=tuple(typed_parameters),
+                    operations=ir_block.operations,
+                    terminator=ir_block.terminator,
+                    source_start=ir_block.source_start,
+                    source_end=ir_block.source_end,
+                    reachable=ir_block.reachable,
+                )
+            )
+        blocks = typed_blocks
+
         locals_ = tuple(
             IRLocal(slot, name, type_name)
             for slot, (name, type_name) in sorted(local_metadata.items())

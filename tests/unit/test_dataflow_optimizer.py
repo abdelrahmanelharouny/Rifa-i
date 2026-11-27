@@ -103,6 +103,10 @@ print(calculate(1, 2, 3));
     assert VirtualMachine().execute(optimized.module).output == ("21",)
     assert VirtualMachine().execute(unoptimized.module).output == ("21",)
     assert optimized.optimization.common_subexpressions_eliminated == 0
+    assert (
+        optimized.module.functions[0].chunk.local_count
+        == unoptimized.module.functions[0].chunk.local_count
+    )
 
 
 def test_optimizer_remains_idempotent_after_dataflow_and_cse():

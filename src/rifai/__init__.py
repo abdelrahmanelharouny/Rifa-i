@@ -2,7 +2,10 @@
 
 from rifai.bytecode import (
     BasicBlock,
-    ControlFlowGraph,\n    DataFlowResult,\n    DataFlowStats,\n    optimize_module_dataflow,
+    ControlFlowGraph,
+    DataFlowResult,
+    DataFlowStats,
+    optimize_module_dataflow,
     analyze_module_control_flow,
     build_control_flow_graph,
     BytecodeDebugInfo,
@@ -46,7 +49,10 @@ __version__ = "0.11.0"
 
 __all__ = [
     "BasicBlock",
-    "ControlFlowGraph",\n    "DataFlowResult",\n    "DataFlowStats",\n    "optimize_module_dataflow",
+    "ControlFlowGraph",
+    "DataFlowResult",
+    "DataFlowStats",
+    "optimize_module_dataflow",
     "analyze_module_control_flow",
     "build_control_flow_graph",
     "BytecodeDebugInfo",

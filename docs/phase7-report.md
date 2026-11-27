@@ -13,7 +13,7 @@ rifai debug examples/phase7_debugger.rif
 Initial source breakpoints can be supplied repeatedly:
 
 ~~~bash
-rifai debug examples/phase7_debugger.rif --breakpoint 8 --breakpoint 15
+rifai debug examples/phase7_debugger.rif --breakpoint 4 --breakpoint 15
 ~~~
 
 The debugger pauses before the first instruction and presents the current source location, function, opcode, instruction index, call depth, and executed-instruction count.

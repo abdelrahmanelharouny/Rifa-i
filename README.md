@@ -35,7 +35,7 @@ python -m rifai run examples/phase5_optimization.rbc
 python -m rifai disasm examples/phase5_optimization.rbc
 
 # Debug source execution with the interactive debugger
-rifai debug examples/phase7_debugger.rif --breakpoint 3
+rifai debug examples/phase7_debugger.rif --breakpoint 4
 
 # Export the complete compiler pipeline as structured JSON
 rifai inspect examples/hello.rif -o hello.inspect.json

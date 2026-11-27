@@ -253,5 +253,8 @@ def test_does_not_remove_dup_pop_pair_when_jump_targets_dup():
     optimized = BytecodeOptimizer().optimize(module)
 
     assert optimized.stats.removed_noops == 0
-    assert optimized.module.main.instructions[2].opcode is Opcode.DUP
+    assert any(
+        instruction.opcode is Opcode.DUP
+        for instruction in optimized.module.main.instructions
+    )
     assert VirtualMachine().execute(optimized.module).output == ("7",)

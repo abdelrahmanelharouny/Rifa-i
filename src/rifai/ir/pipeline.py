@@ -28,9 +28,9 @@ class IRPipeline:
         self.pass_manager = IRPassManager()
         self.lowerer = IRToBytecode()
 
-    def run(self, module: BytecodeModule) -> IRPipelineResult:
+    def run(self, module: BytecodeModule, *, optimize: bool = True) -> IRPipelineResult:
         ir_module = self.builder.build(module)
-        passes = self.pass_manager.run(ir_module)
+        passes = self.pass_manager.run(ir_module, optimize=optimize)
         bytecode = self.lowerer.lower(passes.module)
         return IRPipelineResult(
             ir_module=passes.module,

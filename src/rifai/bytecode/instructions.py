@@ -7,7 +7,7 @@ from enum import Enum
 
 
 class Opcode(str, Enum):
-    """Version 1 bytecode instructions supported by the Rifa'i VM."""
+    """Version 2 bytecode instructions supported by the Rifa'i VM."""
 
     CONSTANT = "CONSTANT"
     POP = "POP"
@@ -40,6 +40,8 @@ class Opcode(str, Enum):
     PRINT = "PRINT"
     JUMP = "JUMP"
     JUMP_IF_FALSE = "JUMP_IF_FALSE"
+    CALL = "CALL"
+    RETURN = "RETURN"
     HALT = "HALT"
 
 
@@ -62,8 +64,6 @@ class Instruction:
     location: SourceLocation | None = None
 
 
-# Operand contracts are intentionally explicit so the verifier, serializer,
-# disassembler, and VM agree on the bytecode representation.
 _INTEGER_OPERAND_OPCODES = frozenset(
     {
         Opcode.CONSTANT,
@@ -73,7 +73,9 @@ _INTEGER_OPERAND_OPCODES = frozenset(
         Opcode.JUMP_IF_FALSE,
     }
 )
-_STRING_OPERAND_OPCODES = frozenset({Opcode.LOAD_GLOBAL, Opcode.STORE_GLOBAL})
+_STRING_OPERAND_OPCODES = frozenset(
+    {Opcode.LOAD_GLOBAL, Opcode.STORE_GLOBAL, Opcode.CALL}
+)
 
 
 def expected_operand_kind(opcode: Opcode) -> str:
@@ -119,7 +121,7 @@ def stack_requirement(opcode: Opcode) -> int:
 
 
 def stack_delta(opcode: Opcode) -> int:
-    """Return the net stack-height change caused by an opcode."""
+    """Return the net stack-height change caused by a non-call opcode."""
     if opcode in {
         Opcode.CONSTANT,
         Opcode.LOAD_LOCAL,

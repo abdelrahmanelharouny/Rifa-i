@@ -1,40 +1,64 @@
 # Rifa'i
 
-**Rifa'i** (.rif) is a custom statically typed programming language built from scratch in Python. Its target is a versioned custom stack-based bytecode format (.rbc), executed by the **Rifa'i VM**.
+Rifa'i (.rif) is a custom statically typed programming language implemented in Python. Source programs compile to a versioned custom stack-based bytecode format (.rbc), executed by the Rifa'i Virtual Machine.
 
 ## Development Status
 
-- **Phase 1 (Complete):** Language specification, formal EBNF grammar, modular compiler architecture, Token system, Lexer with source locations and diagnostics, and the tokens CLI.
-- **Phase 2 (Complete):** Custom AST and tree printer, Recursive Descent Parser with panic-mode recovery, nested Symbol Table, static Type System, Semantic Analyzer (strict typing, forward references, definite-return analysis), and parse / ast / check CLI commands.
-- **Phase 3 (Complete):** Versioned .rbc module format, typed constant pool, stack-based instruction set, bytecode verifier, deterministic serializer, disassembler, and executable Rifa'i VM core with stack, local/global storage, arithmetic, comparisons, logical operations, jumps, output capture, and runtime diagnostics.
-- **Phase 4 (Planned):** AST-to-bytecode Code Generation, source-level control-flow compilation, functions, call frames, and full source-to-bytecode execution.
-- **Phase 5 (Planned):** Compiler optimizations, expanded verification, end-to-end hardening, complete documentation, and final delivery.
+- **Phase 1 — Language and Lexer (Complete):** Language specification, formal EBNF grammar, token system, lexer, source positions, diagnostics, and token inspection.
+- **Phase 2 — Frontend (Complete):** Immutable AST, recursive-descent parser, symbol table, lexical scopes, strict static type checking, forward function references, and definite-return analysis.
+- **Phase 3 — Bytecode and VM Core (Complete):** Versioned bytecode container, typed constant pool, instruction set, verifier, serializer, disassembler, and stack-based VM core.
+- **Phase 4 — Code Generation and Full Execution (Complete):** AST-to-bytecode compiler, globals and local slots, control flow, function chunks, call frames, recursion, end-to-end source compilation, and compile / run CLI commands.
+- **Phase 5 — Optimization and Final Hardening (Next):** Safe compiler optimizations, additional runtime and bytecode hardening, performance measurements, expanded examples, and final documentation.
 
-## CLI Commands
-
-~~~bash
-# Frontend inspection and validation
-python -m rifai tokens examples/hello.rif
-python -m rifai parse examples/hello.rif
-python -m rifai ast examples/hello.rif
-python -m rifai check examples/hello.rif
-
-# Inspect or execute an already compiled bytecode module
-python -m rifai disasm program.rbc
-python -m rifai vm program.rbc
-~~~
-
-The vm command executes an existing .rbc file. Source compilation is intentionally reserved for Phase 4.
-
-## Bytecode Format
-
-Rifa'i bytecode version 1 uses a RIFAI-RBC magic header followed by a UTF-8 JSON payload. The payload stores a format version, typed constants, the main code chunk, instruction operands, and optional source-map locations. The serializer rejects unknown versions and malformed structures; the verifier checks opcodes, operands, jump targets, stack effects, and control-flow merge consistency before execution.
-
-## Setup & Testing
+## Quick Start
 
 ~~~bash
 python -m venv .venv
 # Activate the environment, then:
 pip install -e ".[dev]"
+
+# Compile a Rifa'i program to a portable .rbc file
+python -m rifai compile examples/phase4_functions.rif
+
+# Run source directly (compile in memory, then execute)
+python -m rifai run examples/phase4_functions.rif
+
+# Run an already compiled bytecode file
+python -m rifai run examples/phase4_functions.rbc
+
+# Inspect compiled bytecode
+python -m rifai disasm examples/phase4_functions.rbc
+
+# Run the complete test suite
+python -m pytest -v
+~~~
+
+## CLI Reference
+
+| Command | Purpose |
+|---|---|
+| rifai tokens file.rif | Inspect lexer output |
+| rifai parse file.rif | Parse source and validate syntax |
+| rifai ast file.rif | Print the AST |
+| rifai check file.rif | Run semantic validation |
+| rifai compile file.rif [-o out.rbc] | Compile source into bytecode |
+| rifai run file.rif | Compile and execute source directly |
+| rifai run file.rbc | Execute an existing bytecode module |
+| rifai disasm file.rbc | Verify and disassemble bytecode |
+| rifai vm file.rbc | Execute an existing bytecode module |
+
+## Phase 4 Capabilities
+
+The code generator consumes the same AST instances and SemanticResult bindings produced by the frontend. It does not repeat name resolution. Symbols are mapped to deterministic local slots or global names, preserving lexical shadowing and nested block scope.
+
+Each function is compiled into its own code chunk. Calls use isolated call frames with independent instruction pointers and local arrays. Arguments are checked against the function signature; recursive and mutually recursive calls are supported. Return values are passed back on the caller's operand stack.
+
+The bytecode format is version 2. The reader retains support for version 1 modules that do not contain function chunks. Version 2 modules store function signatures and code chunks in a function table.
+
+## Testing
+
+The suite covers lexical and syntactic analysis, semantic errors, bytecode verification and serialization, VM operations, source compilation, control flow, local/global variables, function calls, recursion, and CLI workflows.
+
+~~~bash
 python -m pytest -v
 ~~~

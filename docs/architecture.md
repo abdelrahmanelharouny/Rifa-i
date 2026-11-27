@@ -1,112 +1,93 @@
 # Rifa'i Compiler Architecture
 
-This document describes the modular architecture of the **Rifa'i Compiler** and **Rifa'i VM**.
+Rifa'i is a statically typed language implemented in Python. Its compiler translates .rif source files into custom .rbc bytecode, which is verified, serialized, and executed by the Rifa'i VM.
 
-## 1. Pipeline Overview
+## 1. Complete Pipeline
 
 ~~~text
-  [.rif source file]
-          |
-          v
-  +-------------------+
-  | Frontend: Lexer   |  Phase 1
-  +---------+---------+
-            | LexResult(tokens, diagnostics)
-            v
-  +-------------------+
-  | Frontend: Parser  |  Phase 2
-  +---------+---------+
-            | ParseResult(program, diagnostics)
-            v
-  +-------------------+
-  | Semantic Analyzer |  Phase 2
-  +---------+---------+
-            | SemanticResult(diagnostics, inferred types, bindings)
-            v
-  +-------------------+
-  | Bytecode Generator|  Phase 4
-  +---------+---------+
-            | BytecodeModule
-            v
-  +-------------------+
-  | Bytecode Serializer| Phase 3
-  +---------+---------+
-            | .rbc
-            v
-  +-------------------+
-  | Rifa'i VM         |  Phase 3 core / Phase 4 functions
-  +-------------------+
+  .rif source
+      |
+      v
+  Lexer ---------------------------- Phase 1
+      | tokens + lexical diagnostics
+      v
+  Recursive-Descent Parser ---------- Phase 2
+      | immutable AST
+      v
+  Semantic Analyzer ---------------- Phase 2
+      | type information + exact symbol bindings
+      v
+  AST-to-Bytecode Code Generator ---- Phase 4
+      | main chunk + function chunks + constant pool
+      v
+  Bytecode Verifier ---------------- Phase 3/4
+      | validated control flow and stack effects
+      v
+  Bytecode Serializer -------------- Phase 3/4
+      | versioned .rbc module
+      v
+  Rifa'i Virtual Machine ----------- Phase 3/4
+      | output + global state
+      v
+  Program result
 ~~~
 
-Phase 3 establishes a usable bytecode contract and VM core. It deliberately does not compile source AST nodes; AST-to-bytecode generation is Phase 4.
+Compiler.compile() orchestrates the frontend and code generator. It stops at the first failing phase and returns structured diagnostics. The generated module is verified before it is exposed as a successful compilation result.
 
 ## 2. Package Layout
 
-- rifai/cli.py and rifai/__main__.py: CLI entrypoint.
-- rifai/errors/diagnostics.py: shared source-aware diagnostics.
-- rifai/frontend/: Lexer, Parser, AST, type system, scopes, and semantic model.
-- rifai/bytecode/instructions.py: opcode definitions, operands, source locations, and stack effects.
-- rifai/bytecode/chunk.py: immutable code chunk structure.
-- rifai/bytecode/module.py: module and constant-pool model.
-- rifai/bytecode/verifier.py: structural, operand, CFG, and stack-height validation.
-- rifai/bytecode/serializer.py: versioned .rbc encoding and decoding.
-- rifai/bytecode/disassembler.py: readable instruction listing.
-- rifai/vm/machine.py: stack-based interpreter.
-- rifai/vm/runtime.py: execution results and runtime exceptions.
+- rifai/frontend/: Token models, Lexer, immutable AST, Parser, types, symbol table, and Semantic Analyzer.
+- rifai/bytecode/instructions.py: Opcode definitions, operand contracts, and stack effects.
+- rifai/bytecode/chunk.py: Main/function code chunks and function signature metadata.
+- rifai/bytecode/module.py: Bytecode module, constants, version information, and function table.
+- rifai/bytecode/codegen.py: AST-to-bytecode generation using SemanticResult bindings.
+- rifai/bytecode/verifier.py: Operand validation and per-chunk control-flow stack analysis.
+- rifai/bytecode/serializer.py: Deterministic versioned .rbc serialization.
+- rifai/bytecode/disassembler.py: Readable listing of constants, main instructions, and functions.
+- rifai/compiler.py: End-to-end source-to-bytecode compiler orchestration.
+- rifai/vm/machine.py: Operand stack, local/global storage, control flow, and call-frame interpreter.
+- rifai/vm/runtime.py: Runtime results and diagnostics.
+- rifai/cli.py: Frontend inspection, compilation, disassembly, and execution commands.
 
-## 3. Bytecode Model
+## 3. Code Generation
 
-A BytecodeModule contains:
-- A typed constant pool (int, float, bool, and string).
-- One main CodeChunk.
-- A source-name field.
-- A bytecode format version.
+The generator receives the exact Program object and corresponding SemanticResult. It consumes identity-keyed semantic bindings for variable declarations, assignments, variable references, function declarations, and function calls. It does not redo scope lookup or infer types.
 
-A CodeChunk contains:
-- A stable name.
-- An immutable instruction tuple.
-- A local-slot count.
-- An arity field reserved for future function chunks.
+Global variables use named global slots. Variables in function scopes and nested lexical blocks use deterministic zero-based local slots within the active code chunk. Distinct shadowed declarations receive distinct slots, so the nearest lexical binding remains the one selected by semantic analysis.
 
-Every instruction contains an Opcode, an optional typed operand, and an optional source location.
+The generator emits constants into a deduplicated typed constant pool, arithmetic/comparison/equality/logical instructions, local/global loads and stores, conditional and unconditional jumps for if/else-if/while, one function chunk per top-level function, CALL and RETURN instructions, and source locations on emitted instructions.
 
-Version 1 is intentionally a single-main-chunk format. Function chunks and call-frame execution are introduced in Phase 4.
+Logical and/or retain the language's eager evaluation semantics in version 1. The generator evaluates left then right operands before the logical opcode.
 
-## 4. Instruction and Stack Conventions
+## 4. Function Calls and VM Frames
 
-The VM is stack-based. Constant and load instructions push one value. Store, print, and pop instructions consume one value. Binary operators consume two values and push one result. Unary operators preserve stack height. DUP duplicates the top item. JUMP transfers to an absolute instruction index. JUMP_IF_FALSE consumes a boolean and branches when it is false. HALT terminates the main chunk and requires an empty operand stack.
+A version 2 bytecode module contains one main chunk and a function table. Each function table entry stores a function name, parameter types, return type, and code chunk. The first arity local slots are reserved for parameters, in declaration order.
 
-LOAD_LOCAL and STORE_LOCAL address zero-based slots in the active chunk. LOAD_GLOBAL and STORE_GLOBAL use a global symbol name. Local slots begin uninitialized; reading an uninitialized slot is a runtime error.
+The VM uses a shared operand stack and a separate call-frame stack. Each frame owns its code chunk, instruction pointer, local storage, return convention, and operand-stack baseline. CALL removes its arguments from the operand stack, validates them against the function signature, creates a new frame, and transfers control. RETURN restores the caller and pushes a result only for non-void functions.
 
-The VM enforces exact runtime operand types to mirror the frontend's strict static type rules. Integer division produces a float. String addition concatenates strings. Division and modulo by zero produce source-aware runtime diagnostics.
+Function chunks can call any function in the module, including themselves and functions declared later. This supports direct recursion, mutual recursion, and forward references. A configurable call-depth limit prevents unbounded recursion from exhausting the host stack; execution and operand-stack limits remain enforced.
 
-## 5. Verification and Serialization
+## 5. Bytecode Versions
 
-The .rbc file begins with the RIFAI-RBC magic header and contains a UTF-8 JSON payload with format version 1. Constants are tagged with explicit types so JSON booleans and integers cannot be confused.
+- Version 1: Main chunk only; retained as a readable and executable legacy format.
+- Version 2: Adds a function table with typed signatures and function chunks, plus CALL and RETURN instructions.
 
-The verifier runs before execution and validates:
-- Supported format version and constant values.
-- Opcode and operand contracts.
-- Constant and local indices.
-- Jump target ranges.
-- Exactly one final HALT.
-- Operand-stack underflow.
-- Consistent stack heights at control-flow merge points.
-- No reachable fall-through beyond the instruction sequence.
-- An empty operand stack at HALT.
+The serializer writes version 2 by default and continues to read version 1. The verifier checks the main chunk and every function chunk independently, including call targets, arity, local slots, jump targets, stack underflow, stack-height merge consistency, return-stack discipline, and terminal instructions.
 
-The verifier is not a replacement for runtime checks. Dynamic values, uninitialized locals, undefined globals, invalid operand types, division by zero, and instruction/stack resource limits are checked by the VM.
+## 6. Diagnostics and CLI
 
-## 6. Diagnostics and Runtime Behavior
+Diagnostics identify the phase that emitted them and preserve source line/column coordinates when available. Generated instructions carry source-map locations into the VM.
 
-Bytecode verification uses the shared BYTECODE diagnostic phase. Runtime failures use VM diagnostics. Instructions may carry source-map locations so faults can point back to the source line and column once Phase 4 emits instructions from AST nodes.
+- tokens, parse, ast, and check inspect or validate source.
+- compile source.rif [-o output.rbc] compiles and saves bytecode.
+- run source.rif compiles in memory and executes immediately.
+- run program.rbc and vm program.rbc execute an existing bytecode module.
+- disasm program.rbc validates and displays bytecode.
 
-The VM captures print output in ExecutionResult.output, returns a read-only snapshot of globals, and exposes instruction counts and the final stack for testing and embedding. The CLI is responsible for writing captured output to the terminal.
+## 7. Project Phases
 
-## 7. Phase Boundaries
-
-- **Phase 1:** Language specification foundation and Lexer.
-- **Phase 2:** AST, Parser, Symbol Table, and Semantic Analyzer.
-- **Phase 3:** Bytecode model, serializer, verifier, disassembler, and basic VM.
-- **Phase 4:** AST-to-bytecode code generation, function chunks, call frames, and full source execution.
-- **Phase 5:** Optimization, full-pipeline hardening, tests, and final documentation.
+- Phase 1: Language specification and Lexer.
+- Phase 2: AST, Parser, Symbol Table, and Semantic Analyzer.
+- Phase 3: Bytecode model, serializer, verifier, disassembler, and VM core.
+- Phase 4: AST-to-bytecode code generation, function chunks, call frames, and full source execution.
+- Phase 5: Optimization, additional validation, performance evaluation, and final delivery.

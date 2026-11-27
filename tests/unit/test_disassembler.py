@@ -15,7 +15,7 @@ def test_disassembler_shows_constants_opcodes_and_source_locations():
         source_name="hello.rif",
     )
     listing = disassemble(module)
-    assert "Rifa'i Bytecode v1" in listing
+    assert "Rifa'i Bytecode v2" in listing
     assert "hello.rif" in listing
     assert "INTEGER" not in listing
     assert "CONSTANT" in listing
@@ -24,15 +24,26 @@ def test_disassembler_shows_constants_opcodes_and_source_locations():
     assert "HALT" in listing
 
 
-def test_disassembler_does_not_crash_on_invalid_constant_reference():
+def test_disassembler_includes_function_signatures_and_chunks():
+    from rifai.bytecode import BytecodeFunction
+
+    function = BytecodeFunction(
+        "double",
+        CodeChunk(
+            "double",
+            (Instruction(Opcode.LOAD_LOCAL, 0), Instruction(Opcode.RETURN)),
+            local_count=1,
+            arity=1,
+        ),
+        ("int",),
+        "int",
+    )
     module = BytecodeModule(
         constants=(),
-        main=CodeChunk(
-            name="<main>",
-            instructions=(
-                Instruction(Opcode.CONSTANT, 99),
-                Instruction(Opcode.HALT),
-            ),
-        ),
+        main=CodeChunk("<main>", (Instruction(Opcode.HALT),)),
+        functions=(function,),
     )
-    assert "invalid constant index" in disassemble(module)
+    listing = disassemble(module)
+    assert "Function: double(int) -> int" in listing
+    assert "LOAD_LOCAL" in listing
+    assert "RETURN" in listing

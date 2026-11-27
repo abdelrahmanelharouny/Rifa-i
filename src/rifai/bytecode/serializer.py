@@ -6,9 +6,15 @@ import json
 import math
 from pathlib import Path
 
-from rifai.bytecode.chunk import CodeChunk
+from rifai.bytecode.chunk import BytecodeFunction, CodeChunk
 from rifai.bytecode.instructions import Instruction, Opcode, SourceLocation
-from rifai.bytecode.module import BytecodeModule, FORMAT_VERSION, MAGIC, is_constant
+from rifai.bytecode.module import (
+    BytecodeModule,
+    FORMAT_VERSION,
+    LEGACY_FORMAT_VERSION,
+    MAGIC,
+    is_constant,
+)
 
 MAX_BYTECODE_SIZE = 16 * 1024 * 1024
 
@@ -92,7 +98,7 @@ def _chunk_from_json(raw: object) -> CodeChunk:
     if not isinstance(raw, dict) or set(raw) != {
         "name", "arity", "local_count", "instructions"
     }:
-        raise BytecodeFormatError("Malformed main code chunk.")
+        raise BytecodeFormatError("Malformed code chunk.")
     name, arity, local_count, raw_instructions = (
         raw["name"], raw["arity"], raw["local_count"], raw["instructions"]
     )
@@ -134,6 +140,39 @@ def _chunk_from_json(raw: object) -> CodeChunk:
     )
 
 
+def _function_to_json(function: BytecodeFunction) -> dict[str, object]:
+    return {
+        "name": function.name,
+        "parameter_types": list(function.parameter_types),
+        "return_type": function.return_type,
+        "chunk": _chunk_to_json(function.chunk),
+    }
+
+
+def _function_from_json(raw: object) -> BytecodeFunction:
+    if not isinstance(raw, dict) or set(raw) != {
+        "name", "parameter_types", "return_type", "chunk"
+    }:
+        raise BytecodeFormatError("Malformed function metadata.")
+    name = raw["name"]
+    parameter_types = raw["parameter_types"]
+    return_type = raw["return_type"]
+    if not isinstance(name, str):
+        raise BytecodeFormatError("Function name must be a string.")
+    if not isinstance(parameter_types, list) or any(
+        not isinstance(item, str) for item in parameter_types
+    ):
+        raise BytecodeFormatError("Function parameter_types must be a string array.")
+    if not isinstance(return_type, str):
+        raise BytecodeFormatError("Function return_type must be a string.")
+    return BytecodeFunction(
+        name=name,
+        chunk=_chunk_from_json(raw["chunk"]),
+        parameter_types=tuple(parameter_types),
+        return_type=return_type,
+    )
+
+
 def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
     result: dict[str, object] = {}
     for key, value in pairs:
@@ -144,17 +183,19 @@ def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
 
 
 class BytecodeSerializer:
-    """Encode and decode the Rifa'i versioned bytecode container."""
+    """Encode and decode legacy version 1 and function-capable version 2 modules."""
 
     @staticmethod
     def to_bytes(module: BytecodeModule) -> bytes:
         if not isinstance(module, BytecodeModule):
             raise TypeError("module must be a BytecodeModule.")
-        if module.format_version != FORMAT_VERSION:
+        if module.format_version not in (LEGACY_FORMAT_VERSION, FORMAT_VERSION):
             raise BytecodeFormatError(
                 f"Cannot write bytecode version {module.format_version}; "
-                f"writer supports version {FORMAT_VERSION}."
+                f"supported versions are {LEGACY_FORMAT_VERSION} and {FORMAT_VERSION}."
             )
+        if module.format_version == LEGACY_FORMAT_VERSION and module.functions:
+            raise BytecodeFormatError("Version 1 bytecode cannot contain function chunks.")
         if any(not is_constant(value) for value in module.constants):
             raise BytecodeFormatError("Module contains an unsupported constant.")
 
@@ -166,6 +207,10 @@ class BytecodeSerializer:
                 "constants": [_constant_to_json(value) for value in module.constants],
                 "main": _chunk_to_json(module.main),
             }
+            if module.format_version >= FORMAT_VERSION:
+                payload["functions"] = [
+                    _function_to_json(function) for function in module.functions
+                ]
             encoded = json.dumps(
                 payload,
                 ensure_ascii=False,
@@ -199,38 +244,51 @@ class BytecodeSerializer:
         except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
             raise BytecodeFormatError(f"Invalid bytecode payload: {exc}") from exc
 
-        if not isinstance(payload, dict) or set(payload) != {
-            "magic", "format_version", "source_name", "constants", "main"
-        }:
+        if not isinstance(payload, dict):
+            raise BytecodeFormatError("Bytecode module has an invalid top-level structure.")
+        version = payload.get("format_version")
+        if type(version) is not int or version not in (
+            LEGACY_FORMAT_VERSION,
+            FORMAT_VERSION,
+        ):
+            raise BytecodeFormatError(
+                f"Unsupported bytecode version {version!r}; "
+                f"supported versions are {LEGACY_FORMAT_VERSION} and {FORMAT_VERSION}."
+            )
+
+        expected_fields = (
+            {"magic", "format_version", "source_name", "constants", "main"}
+            if version == LEGACY_FORMAT_VERSION
+            else {"magic", "format_version", "source_name", "constants", "main", "functions"}
+        )
+        if set(payload) != expected_fields:
             raise BytecodeFormatError("Bytecode module has an invalid top-level structure.")
         if payload["magic"] != "RIFAI":
             raise BytecodeFormatError("Bytecode magic identifier does not match.")
-        version = payload["format_version"]
-        if type(version) is not int or version != FORMAT_VERSION:
-            raise BytecodeFormatError(
-                f"Unsupported bytecode version {version!r}; "
-                f"supported version is {FORMAT_VERSION}."
-            )
         source_name = payload["source_name"]
         if source_name is not None and not isinstance(source_name, str):
             raise BytecodeFormatError("source_name must be a string or null.")
         raw_constants = payload["constants"]
         if not isinstance(raw_constants, list):
             raise BytecodeFormatError("Constant pool must be an array.")
-
         constants = tuple(_constant_from_json(item) for item in raw_constants)
         main = _chunk_from_json(payload["main"])
+
+        raw_functions = payload.get("functions", [])
+        if not isinstance(raw_functions, list):
+            raise BytecodeFormatError("Function table must be an array.")
+        functions = tuple(_function_from_json(item) for item in raw_functions)
         return BytecodeModule(
             constants=constants,
             main=main,
             source_name=source_name,
             format_version=version,
+            functions=functions,
         )
 
     @classmethod
     def write(cls, module: BytecodeModule, path: str | Path) -> None:
-        target = Path(path)
-        target.write_bytes(cls.to_bytes(module))
+        Path(path).write_bytes(cls.to_bytes(module))
 
     @classmethod
     def read(cls, path: str | Path) -> BytecodeModule:

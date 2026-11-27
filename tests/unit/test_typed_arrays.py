@@ -166,7 +166,7 @@ def test_vm_rejects_runtime_array_type_mismatch_in_untrusted_bytecode() -> None:
         ),
         functions=(function,),
     )
-    with pytest.raises(VMRuntimeError, match="expected 'string\[\]'"):
+    with pytest.raises(VMRuntimeError, match=r"expected 'string\[\]'"):
         VirtualMachine().execute(module)
 
 
@@ -260,7 +260,7 @@ def test_function_array_signatures_are_rejected_before_bytecode_v4() -> None:
 
 
 def test_cli_debugger_displays_array_locals_with_source_names() -> None:
-    source = """fn inspect() {
+    source = """fn inspect() -> void {
     let values: int[] = [4, 5];
     print(values[0]);
 }

@@ -2,7 +2,7 @@
 
 from rifai.bytecode import (
     BasicBlock,
-    ControlFlowGraph,
+    ControlFlowGraph,\n    DataFlowResult,\n    DataFlowStats,\n    optimize_module_dataflow,
     analyze_module_control_flow,
     build_control_flow_graph,
     BytecodeDebugInfo,
@@ -42,11 +42,11 @@ from rifai.vm import (
     VMRuntimeError,
 )
 
-__version__ = "0.10.0"
+__version__ = "0.11.0"
 
 __all__ = [
     "BasicBlock",
-    "ControlFlowGraph",
+    "ControlFlowGraph",\n    "DataFlowResult",\n    "DataFlowStats",\n    "optimize_module_dataflow",
     "analyze_module_control_flow",
     "build_control_flow_graph",
     "BytecodeDebugInfo",

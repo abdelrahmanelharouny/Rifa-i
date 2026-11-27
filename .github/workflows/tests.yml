@@ -38,7 +38,7 @@ jobs:
         run: |
           rifai-lsp --version
           rifai inspect examples/hello.rif --output /tmp/rifai-inspect.json
-          python -c "import json; p=json.load(open('/tmp/rifai-inspect.json', encoding='utf-8')); assert p['success'] and p['stages']['bytecode']['format_version'] == 4"
+          python -c "import json; p=json.load(open('/tmp/rifai-inspect.json', encoding='utf-8')); b=p['stages']['bytecode']; assert p['success'] and b['format_version'] == 4 and b['control_flow']['<main>']['block_count'] > 0"
 
       - name: Validate debugger example
         run: rifai check examples/phase7_debugger.rif

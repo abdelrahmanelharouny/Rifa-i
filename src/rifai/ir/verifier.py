@@ -116,6 +116,12 @@ class IRVerifier:
                     report(f"block {block.block_id} stores a terminator as an operation.")
                 for value_id in operation.inputs:
                     self._use(value_id, local_definitions, report, block.block_id)
+                if operation.opcode in (Opcode.LOAD_LOCAL, Opcode.STORE_LOCAL) and (
+                    type(operation.operand) is not int
+                    or operation.operand < 0
+                    or operation.operand >= function.local_count
+                ):
+                    report(f"{operation.opcode.value} references an out-of-range local slot.")
                 expected_inputs, expected_outputs = self._operation_shape(
                     module, operation, functions, report
                 )
@@ -146,6 +152,8 @@ class IRVerifier:
                 edges.append((term.false_target, term.false_arguments))
                 edges.append((term.true_target, term.true_arguments))
             elif isinstance(term, IRReturn):
+                if function.name == "<main>":
+                    report("RETURN is only valid inside a function.")
                 if function.return_type == "void" and term.value is not None:
                     report(f"void function returns a value in block {block.block_id}.")
                 if function.return_type != "void" and term.value is None:

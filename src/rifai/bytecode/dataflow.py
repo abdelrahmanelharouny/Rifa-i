@@ -16,7 +16,7 @@ from rifai.bytecode.cfg import ControlFlowGraph, build_control_flow_graph
 from rifai.bytecode.chunk import BytecodeFunction, CodeChunk
 from rifai.bytecode.instructions import Instruction, Opcode, stack_delta
 from rifai.bytecode.module import BytecodeDebugInfo, BytecodeDebugLocal, BytecodeModule
-from rifai.bytecode.verifier import MAX_LOCAL_COUNT
+from rifai.bytecode.verifier import MAX_LOCAL_COUNT, BytecodeVerifier
 
 _UNKNOWN = object()
 _CONSTANT_TYPES = (int, float, bool, str)
@@ -723,6 +723,10 @@ def optimize_module_dataflow(module: BytecodeModule) -> DataFlowResult:
     """Run fixed-point constant propagation, branch folding, DCE, and local CSE."""
     if not isinstance(module, BytecodeModule):
         raise TypeError("module must be a BytecodeModule.")
+    validation = BytecodeVerifier().verify(module)
+    if not validation.is_valid:
+        messages = "; ".join(item.message for item in validation.diagnostics[:3])
+        raise ValueError(f"Cannot analyze invalid bytecode: {messages}")
 
     functions = {function.name: function for function in module.functions}
     stats = DataFlowStats()
@@ -828,4 +832,8 @@ def optimize_module_dataflow(module: BytecodeModule) -> DataFlowResult:
         debug_info=debug_info,
     )
     stats += DataFlowStats(0, 0, 0, cse_hits)
+    final_validation = BytecodeVerifier().verify(optimized)
+    if not final_validation.is_valid:
+        messages = "; ".join(item.message for item in final_validation.diagnostics[:3])
+        raise RuntimeError(f"Data-flow optimizer produced invalid bytecode: {messages}")
     return DataFlowResult(optimized, stats)

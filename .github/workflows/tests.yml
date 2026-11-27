@@ -33,3 +33,6 @@ jobs:
 
       - name: Run complete test suite
         run: python -m pytest -v
+
+      - name: Verify benchmark CLI smoke test
+        run: python benchmarks/benchmark_pipeline.py --iterations 100 --repeat 1

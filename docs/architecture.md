@@ -4,7 +4,7 @@ Rifa'i is a statically typed language implemented in Python. Its compiler transl
 
 ## 1. Complete Pipeline
 
-~~~text
+```text
   .rif source
       |
       v
@@ -20,19 +20,22 @@ Rifa'i is a statically typed language implemented in Python. Its compiler transl
   AST-to-Bytecode Code Generator ---- Phase 4
       | main chunk + function chunks + constant pool
       v
-  Bytecode Verifier ---------------- Phase 3/4
+  Bytecode Optimizer ---------------- Phase 5
+      | constant folding + constant-pool compaction
+      v
+  Bytecode Verifier ---------------- Phase 3/4/5
       | validated control flow and stack effects
       v
-  Bytecode Serializer -------------- Phase 3/4
+  Bytecode Serializer -------------- Phase 3/5
       | versioned .rbc module
       v
-  Rifa'i Virtual Machine ----------- Phase 3/4
-      | output + global state
+  Rifa'i Virtual Machine ----------- Phase 3/4/5
+      | bounded execution + output + global state
       v
   Program result
-~~~
+```
 
-Compiler.compile() orchestrates the frontend and code generator. It stops at the first failing phase and returns structured diagnostics. The generated module is verified before it is exposed as a successful compilation result.
+Compiler.compile() orchestrates the frontend, code generator, optional optimizer, and final verifier. It stops at the first failing phase and returns structured diagnostics. Optimized bytecode is verified again before it is exposed as a successful compilation result.
 
 ## 2. Package Layout
 
@@ -41,11 +44,12 @@ Compiler.compile() orchestrates the frontend and code generator. It stops at the
 - rifai/bytecode/chunk.py: Main/function code chunks and function signature metadata.
 - rifai/bytecode/module.py: Bytecode module, constants, version information, and function table.
 - rifai/bytecode/codegen.py: AST-to-bytecode generation using SemanticResult bindings.
-- rifai/bytecode/verifier.py: Operand validation and per-chunk control-flow stack analysis.
-- rifai/bytecode/serializer.py: Deterministic versioned .rbc serialization.
+- rifai/bytecode/optimizer.py: Semantics-preserving constant folding, no-op cleanup, and constant-pool compaction.
+- rifai/bytecode/verifier.py: Operand validation, source-map validation, module limits, and per-chunk control-flow stack analysis.
+- rifai/bytecode/serializer.py: Deterministic versioned .rbc serialization and atomic file writes.
 - rifai/bytecode/disassembler.py: Readable listing of constants, main instructions, and functions.
 - rifai/compiler.py: End-to-end source-to-bytecode compiler orchestration.
-- rifai/vm/machine.py: Operand stack, local/global storage, control flow, and call-frame interpreter.
+- rifai/vm/machine.py: Operand stack, local/global storage, control flow, bounded output, and call-frame interpreter.
 - rifai/vm/runtime.py: Runtime results and diagnostics.
 - rifai/cli.py: Frontend inspection, compilation, disassembly, and execution commands.
 
@@ -65,29 +69,35 @@ A version 2 bytecode module contains one main chunk and a function table. Each f
 
 The VM uses a shared operand stack and a separate call-frame stack. Each frame owns its code chunk, instruction pointer, local storage, return convention, and operand-stack baseline. CALL removes its arguments from the operand stack, validates them against the function signature, creates a new frame, and transfers control. RETURN restores the caller and pushes a result only for non-void functions.
 
-Function chunks can call any function in the module, including themselves and functions declared later. This supports direct recursion, mutual recursion, and forward references. A configurable call-depth limit prevents unbounded recursion from exhausting the host stack; execution and operand-stack limits remain enforced.
+Function chunks can call any function in the module, including themselves and functions declared later. This supports direct recursion, mutual recursion, and forward references. A configurable call-depth limit prevents unbounded recursion from exhausting the host stack; execution, operand-stack, string-size, and captured-output limits are also enforced.
 
 ## 5. Bytecode Versions
 
 - Version 1: Main chunk only; retained as a readable and executable legacy format.
 - Version 2: Adds a function table with typed signatures and function chunks, plus CALL and RETURN instructions.
 
-The serializer writes version 2 by default and continues to read version 1. The verifier checks the main chunk and every function chunk independently, including call targets, arity, local slots, jump targets, stack underflow, stack-height merge consistency, return-stack discipline, and terminal instructions.
+The serializer writes version 2 by default and continues to read version 1. The verifier checks the main chunk and every function chunk independently, including call targets, arity, local slots, jump targets, stack underflow, stack-height merge consistency, return-stack discipline, terminal instructions, source-map coordinates, and structural complexity bounds.
 
-## 6. Diagnostics and CLI
+## 6. Optimization
 
-Diagnostics identify the phase that emitted them and preserve source line/column coordinates when available. Generated instructions carry source-map locations into the VM.
+Optimization runs after code generation and before the final bytecode verification. The conservative pass folds pure constant unary/binary operations when the result is finite and within compile-time folding bounds. It removes unused constants and deduplicates by exact type and value, preserving the distinction between values such as `true` and `1`. It also removes the neutral `DUP; POP` sequence.
+
+The pass compacts folded expressions and no-op pairs, then remaps absolute jump targets to the compacted instruction indices. It refuses to fold a range if a jump enters its interior, and it keeps a DUP/POP pair when either instruction is a jump target. Division/modulo by zero and operations whose result is outside the folding bounds remain instructions and preserve runtime diagnostics. Optimization can be disabled with `Compiler(optimize=False)` or `--no-optimize`.
+
+## 7. Diagnostics, Limits, and CLI
+
+Diagnostics identify the phase that emitted them and preserve source line/column coordinates when available. Generated instructions carry source locations into the VM. The VM exposes configurable positive-integer limits for executed instructions, operand-stack depth, call depth, integer bit length, string length, and total captured output. The verifier also bounds local slots per code chunk and constant-string sizes. The serializer caps bytecode files at 16 MiB and writes files using a temporary file plus atomic replacement.
 
 - tokens, parse, ast, and check inspect or validate source.
-- compile source.rif [-o output.rbc] compiles and saves bytecode.
-- run source.rif compiles in memory and executes immediately.
+- compile source.rif [-o output.rbc] [--no-optimize] compiles and saves bytecode.
+- run source.rif [--no-optimize] compiles in memory and executes immediately.
 - run program.rbc and vm program.rbc execute an existing bytecode module.
 - disasm program.rbc validates and displays bytecode.
 
-## 7. Project Phases
+## 8. Project Phases
 
 - Phase 1: Language specification and Lexer.
 - Phase 2: AST, Parser, Symbol Table, and Semantic Analyzer.
 - Phase 3: Bytecode model, serializer, verifier, disassembler, and VM core.
 - Phase 4: AST-to-bytecode code generation, function chunks, call frames, and full source execution.
-- Phase 5: Optimization, additional validation, performance evaluation, and final delivery.
+- Phase 5: Conservative optimization, runtime and bytecode hardening, reproducible benchmarks, examples, and final delivery.

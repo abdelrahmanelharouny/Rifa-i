@@ -3,12 +3,15 @@
 from rifai.bytecode import (
     BytecodeFunction,
     BytecodeModule,
+    BytecodeOptimizer,
     BytecodeSerializer,
     BytecodeVerifier,
     CodeChunk,
     CodeGenerator,
     Instruction,
     Opcode,
+    OptimizationResult,
+    OptimizationStats,
     disassemble,
 )
 from rifai.compiler import CompilationResult, Compiler
@@ -21,11 +24,12 @@ from rifai.frontend.tokens import KEYWORDS, Token, TokenType
 from rifai.frontend.types import RifaiType
 from rifai.vm import ExecutionResult, VirtualMachine, VMRuntimeError
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 __all__ = [
     "BytecodeFunction",
     "BytecodeModule",
+    "BytecodeOptimizer",
     "BytecodeSerializer",
     "BytecodeVerifier",
     "CodeChunk",
@@ -40,6 +44,8 @@ __all__ = [
     "LexResult",
     "Lexer",
     "Opcode",
+    "OptimizationResult",
+    "OptimizationStats",
     "ParseResult",
     "Parser",
     "Program",

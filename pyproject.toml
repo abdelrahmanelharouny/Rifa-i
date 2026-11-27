@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rifai"
-version = "0.4.0"
+version = "0.5.0"
 description = "Rifa'i programming language compiler and virtual machine"
 readme = "README.md"
 requires-python = ">=3.11"

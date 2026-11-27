@@ -1,0 +1,18 @@
+// Rifa'i Phase 5: optimized compilation and VM execution
+
+fn square(value: int) -> int {
+    return value * value;
+}
+
+let base: int = (4 * 5) + (18 % 3);
+let total: int = 0;
+let index: int = 1;
+
+while (index <= 5) {
+    total = total + square(index) + base;
+    index = index + 1;
+}
+
+print("Optimized result:");
+print(total);
+print(base);

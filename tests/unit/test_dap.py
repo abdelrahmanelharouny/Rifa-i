@@ -145,6 +145,14 @@ def test_dap_debugs_standalone_rbc_and_exposes_embedded_source_and_locals(tmp_pa
         assert not worker.is_alive()
         assert results == [0]
     finally:
+        # Shutdown both ends first so a failed assertion cannot leave the
+        # adapter blocked in a socket read while the buffered reader is closed.
+        for endpoint in (client_socket, server_socket):
+            try:
+                endpoint.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+        worker.join(timeout=3)
         client_writer.close()
         client_reader.close()
         server_writer.close()

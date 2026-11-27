@@ -101,6 +101,7 @@ class IRVerifier:
         if function.blocks[0].block_id != 0:
             report("the entry block must have identifier 0.")
         definitions: set[int] = set()
+        definition_types: dict[int, str | None] = {}
         edges: list[tuple[int, tuple[int, ...]]] = []
         branch_edges: list[tuple[int, tuple[int, ...]]] = []
 
@@ -108,6 +109,8 @@ class IRVerifier:
             local_definitions: set[int] = set()
             for parameter in block.parameters:
                 self._define(parameter, definitions, local_definitions, report)
+                if isinstance(parameter, IRValue):
+                    definition_types[parameter.value_id] = parameter.type_name
             for operation in block.operations:
                 if not isinstance(operation, IROperation):
                     report(f"block {block.block_id} contains an invalid operation.")
@@ -137,6 +140,8 @@ class IRVerifier:
                     )
                 for output in operation.outputs:
                     self._define(output, definitions, local_definitions, report)
+                    if isinstance(output, IRValue):
+                        definition_types[output.value_id] = output.type_name
                 if operation.location is not None and not isinstance(operation.location, SourceLocation):
                     report(f"operation in block {block.block_id} has invalid source metadata.")
 
@@ -202,6 +207,18 @@ class IRVerifier:
                         f"edge {block.block_id}->{target} passes {len(arguments)} value(s), "
                         f"but target expects {len(target_block.parameters)}."
                     )
+                else:
+                    for argument, parameter in zip(arguments, target_block.parameters):
+                        source_type = definition_types.get(argument)
+                        if (
+                            source_type is not None
+                            and parameter.type_name is not None
+                            and source_type != parameter.type_name
+                        ):
+                            report(
+                                f"edge {block.block_id}->{target} passes {source_type} "
+                                f"to a {parameter.type_name} block parameter."
+                            )
 
         if function.name == "<main>" and not isinstance(function.blocks[-1].terminator, IRHalt):
             report("main must end with HALT.")

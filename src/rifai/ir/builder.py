@@ -349,7 +349,7 @@ class BytecodeToIR:
                         heights[successor] = height
                         queue.append(successor)
                     elif graph.block_count and heights[successor] != height:
-                        if successor in graph.reachable_blocks:
+                        if block_id in graph.reachable_blocks and successor in graph.reachable_blocks:
                             raise ValueError(
                                 f"IR stack-height mismatch at block {successor} in '{chunk.name}'."
                             )

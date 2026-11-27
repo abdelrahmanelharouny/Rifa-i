@@ -62,7 +62,7 @@ jobs:
           rifai run examples/phase11_ir_pipeline.rif > /tmp/rifai-phase11.txt
           python -c "from pathlib import Path; assert Path('/tmp/rifai-phase11.txt').read_text(encoding='utf-8').strip() == '10'"
           rifai inspect examples/phase11_ir_pipeline.rif --output /tmp/rifai-phase11.json
-          python -c "import json; p=json.load(open('/tmp/rifai-phase11.json', encoding='utf-8')); s=p['stages']; assert p['success'] and s['ir']['ir_version'] == 1 and s['ir']['stats']['block_count'] > 0 and 'cfg-dominator-analysis' in s['ir_pipeline']['passes'] and s['ir_analysis']['edge_count'] > 0"
+          python -c "import json; p=json.load(open('/tmp/rifai-phase11.json', encoding='utf-8')); s=p['stages']; assert p['success'] and s['ir']['ir_version'] == 1 and s['ir']['stats']['blocks'] > 0 and 'cfg-dominator-analysis' in s['ir_pipeline']['passes'] and s['ir_analysis']['edge_count'] > 0"
 
       - name: Verify interactive debugger smoke test
         run: |

@@ -148,3 +148,40 @@ print(calculate(1, 2, 3, 4));
         optimized.module.functions[1].chunk.local_count
         == unoptimized.module.functions[1].chunk.local_count
     )
+
+
+def test_dataflow_merge_keeps_bool_and_int_constants_distinct():
+    from rifai.bytecode import BytecodeModule, CodeChunk, Instruction
+    from rifai.bytecode.optimizer import BytecodeOptimizer
+
+    module = BytecodeModule(
+        constants=(True, 1),
+        main=CodeChunk(
+            "<main>",
+            (
+                Instruction(Opcode.LOAD_GLOBAL, "condition"),
+                Instruction(Opcode.JUMP_IF_FALSE, 5),
+                Instruction(Opcode.CONSTANT, 0),
+                Instruction(Opcode.STORE_LOCAL, 0),
+                Instruction(Opcode.JUMP, 7),
+                Instruction(Opcode.CONSTANT, 1),
+                Instruction(Opcode.STORE_LOCAL, 0),
+                Instruction(Opcode.LOAD_LOCAL, 0),
+                Instruction(Opcode.PRINT),
+                Instruction(Opcode.HALT),
+            ),
+            local_count=1,
+        ),
+    )
+    optimized = BytecodeOptimizer().optimize(module)
+
+    assert any(
+        item.opcode is Opcode.LOAD_LOCAL and item.operand == 0
+        for item in optimized.module.main.instructions
+    )
+    assert VirtualMachine().execute(
+        optimized.module, initial_globals={"condition": True}
+    ).output == ("true",)
+    assert VirtualMachine().execute(
+        optimized.module, initial_globals={"condition": False}
+    ).output == ("1",)

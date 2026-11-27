@@ -1,33 +1,42 @@
-# Rifa'i Bytecode Specification — Version 1
+# Rifa'i Bytecode Specification
 
 ## 1. Container Format
 
-A version 1 bytecode file uses this layout:
+The bytecode file begins with the ASCII magic header RIFAI-RBC followed by a newline, then a UTF-8 JSON payload.
 
-1. Magic header: ASCII bytes RIFAI-RBC followed by a newline.
-2. UTF-8 JSON document containing the module payload.
+### Version 1
 
-The payload has exactly these top-level fields:
-
+Version 1 contains exactly:
 - magic: RIFAI
 - format_version: integer 1
 - source_name: string or null
 - constants: typed constant array
 - main: main code chunk
 
-Unknown format versions are rejected. JSON constants are explicitly tagged as int, float, bool, or string. Non-finite floating-point constants are not supported.
+### Version 2
 
-The serializer uses deterministic key ordering and compact JSON. The reader enforces a 16 MiB maximum file size and rejects malformed fields, unknown opcodes, invalid operands, and invalid source locations.
+Version 2 contains all version 1 fields plus:
+- functions: array of function records.
 
-## 2. Main Code Chunk
+A function record contains:
+- name: unique non-empty function name
+- parameter_types: ordered array of int, float, bool, or string
+- return_type: one of int, float, bool, string, or void
+- chunk: executable code chunk
+
+The serializer writes version 2 by default and retains a version 1 writer for compatibility tooling. The reader accepts versions 1 and 2 and rejects unsupported versions. Constants are tagged as int, float, bool, or string; non-finite floats are forbidden. JSON keys must be unique. The maximum file size is 16 MiB.
+
+## 2. Code Chunks and Frames
 
 A code chunk contains:
-- name: non-empty string
-- arity: non-negative integer (zero for the version 1 main chunk)
-- local_count: non-negative integer
+- name: non-empty name (<main> for the main program)
+- arity: non-negative integer
+- local_count: number of local slots
 - instructions: ordered instruction array
 
-Version 1 modules contain one main chunk. Function chunks and call frames are reserved for Phase 4.
+For a function chunk, arity must equal the length of its parameter signature and local_count must be at least arity. The first arity slots hold parameters in declaration order. Other locals use the remaining zero-based slots.
+
+Version 1 modules contain only the main chunk. Version 2 modules contain one main chunk and zero or more function chunks.
 
 ## 3. Instruction Encoding
 
@@ -36,7 +45,7 @@ Each instruction contains:
 - operand: integer, string, or null according to the opcode contract
 - location: optional source location (line, column, start_offset, end_offset)
 
-Jump targets are absolute zero-based instruction indices within the main chunk.
+Jump targets are absolute, zero-based instruction indices within the current chunk.
 
 | Opcode | Operand | Stack effect | Behavior |
 |---|---|---:|---|
@@ -54,37 +63,36 @@ Jump targets are absolute zero-based instruction indices within the main chunk.
 | MULTIPLY | none | -1 | Numeric multiplication |
 | DIVIDE | none | -1 | Numeric division, result is float |
 | MODULO | none | -1 | Integer remainder |
-| EQUAL | none | -1 | Strict same-type equality |
-| NOT_EQUAL | none | -1 | Strict same-type inequality |
-| LESS | none | -1 | Numeric less-than |
-| LESS_EQUAL | none | -1 | Numeric less-than-or-equal |
-| GREATER | none | -1 | Numeric greater-than |
-| GREATER_EQUAL | none | -1 | Numeric greater-than-or-equal |
-| AND | none | -1 | Eager boolean conjunction |
-| OR | none | -1 | Eager boolean disjunction |
+| EQUAL / NOT_EQUAL | none | -1 | Strict same-type equality/inequality |
+| LESS / LESS_EQUAL | none | -1 | Numeric less-than comparisons |
+| GREATER / GREATER_EQUAL | none | -1 | Numeric greater-than comparisons |
+| AND / OR | none | -1 | Eager boolean conjunction/disjunction |
 | PRINT | none | -1 | Consume and capture a printable value |
 | JUMP | instruction index | 0 | Unconditional branch |
 | JUMP_IF_FALSE | instruction index | -1 | Pop bool and branch when false |
+| CALL | function name | -arity + returns-value | Invoke a function with arguments already on the stack |
+| RETURN | none | function terminal | Return the top value from value functions; void functions return no value |
 | HALT | none | 0 | End the main chunk |
 
-+1 means one value is added to the stack; -1 means one value is removed; 0 means stack height is unchanged. Binary instructions require two values before execution, and unary instructions require one.
-
-Logical AND and OR in bytecode version 1 are eager. Phase 4 may use conditional jumps to implement source-level short-circuit evaluation if the language specification is amended accordingly.
++1 means a value is added to the stack; -1 means a value is removed; 0 means stack height is unchanged. CALL consumes exactly the callee's arity. It pushes one result for non-void functions and no result for void functions. RETURN is valid only in function chunks; HALT is valid only in the main chunk.
 
 ## 4. Verification Invariants
 
-A valid main chunk:
-- Has exactly one HALT, at the final instruction.
-- Uses valid opcode/operand combinations.
-- References only existing constants and local slots.
-- Uses in-range jump targets.
-- Has no stack underflow on reachable paths.
-- Has consistent stack heights at control-flow merge points.
-- Cannot fall off the end of the chunk.
-- Reaches HALT with an empty operand stack.
+The verifier validates the main chunk and every function chunk:
+- Supported bytecode version and typed constants.
+- Unique function names and supported function signatures.
+- Function arity and local-slot layout.
+- Opcode/operand contracts and known call targets.
+- Constant indices, local slots, and jump targets.
+- Exactly one final HALT in the main chunk.
+- No HALT in function chunks and no RETURN in the main chunk.
+- Correct operand-stack depth at RETURN (zero for void, one for value returns).
+- No reachable stack underflow or inconsistent stack depth at control-flow merge points.
+- No reachable instruction path falling beyond the end of its chunk.
+- An empty operand stack at main HALT.
 
-The verifier performs control-flow stack-height analysis. Runtime checks remain necessary for value types, uninitialized locals, global lookup, zero division, and resource limits.
+Runtime checks remain necessary for dynamic value types, uninitialized locals, undefined globals, zero division, finite floating-point results, and execution/stack/call-depth limits.
 
-## 5. Versioning
+## 5. Compatibility and Versioning
 
-The serializer writes format version 1. Changes that are not backward-compatible must increment FORMAT_VERSION and define a migration or explicit rejection policy. New opcodes must be documented and implemented consistently in the verifier, disassembler, and VM before being considered supported.
+Version 1 modules remain readable and executable if they use the original main-chunk instruction set. Version 2 adds CALL, RETURN, and the function table. The serializer writes version 2 by default. Any future incompatible change must increment the format version and define an explicit compatibility policy.

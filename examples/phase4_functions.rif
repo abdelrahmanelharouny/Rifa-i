@@ -1,0 +1,27 @@
+// Rifa'i Phase 4 end-to-end compiler example
+
+fn factorial(n: int) -> int {
+    if (n <= 1) {
+        return 1;
+    } else {
+        return n * factorial(n - 1);
+    }
+}
+
+fn greet(name: string) -> void {
+    print("Hello, " + name + "!");
+}
+
+let language: string = "Rifa'i";
+let start: int = 1;
+
+greet(language);
+print("5! = " + "120");
+
+let result: int = factorial(5);
+print(result);
+
+while (start <= 3) {
+    print(start);
+    start = start + 1;
+}

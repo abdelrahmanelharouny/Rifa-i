@@ -1,22 +1,32 @@
-"""Bytecode models, serialization, verification, and inspection for Rifa'i."""
+"""Bytecode models, generation, serialization, verification, and inspection."""
 
-from rifai.bytecode.chunk import CodeChunk
+from rifai.bytecode.chunk import BytecodeFunction, CodeChunk
+from rifai.bytecode.codegen import CodeGenerationResult, CodeGenerator
 from rifai.bytecode.disassembler import disassemble
 from rifai.bytecode.instructions import Instruction, Opcode, SourceLocation
-from rifai.bytecode.module import BytecodeModule, Constant, FORMAT_VERSION
+from rifai.bytecode.module import (
+    BytecodeModule,
+    Constant,
+    FORMAT_VERSION,
+    LEGACY_FORMAT_VERSION,
+)
 from rifai.bytecode.serializer import BytecodeFormatError, BytecodeSerializer
 from rifai.bytecode.verifier import BytecodeValidationResult, BytecodeVerifier
 
 __all__ = [
     "BytecodeFormatError",
+    "BytecodeFunction",
     "BytecodeModule",
     "BytecodeSerializer",
     "BytecodeValidationResult",
     "BytecodeVerifier",
     "CodeChunk",
+    "CodeGenerationResult",
+    "CodeGenerator",
     "Constant",
     "FORMAT_VERSION",
     "Instruction",
+    "LEGACY_FORMAT_VERSION",
     "Opcode",
     "SourceLocation",
     "disassemble",

@@ -1,4 +1,4 @@
-"""Code-chunk data structures for Rifa'i bytecode."""
+"""Immutable code-chunk and function metadata models for Rifa'i bytecode."""
 
 from __future__ import annotations
 
@@ -9,11 +9,7 @@ from rifai.bytecode.instructions import Instruction
 
 @dataclass(frozen=True, slots=True)
 class CodeChunk:
-    """A straight-line or control-flow instruction sequence.
-
-    Version 1 uses the main chunk only. The arity field is retained in the
-    stable chunk model for future function chunks introduced in Phase 4.
-    """
+    """An instruction sequence with its local frame layout."""
 
     name: str
     instructions: tuple[Instruction, ...]
@@ -22,3 +18,24 @@ class CodeChunk:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "instructions", tuple(self.instructions))
+
+
+@dataclass(frozen=True, slots=True)
+class BytecodeFunction:
+    """Function signature and executable chunk stored in a bytecode module."""
+
+    name: str
+    chunk: CodeChunk
+    parameter_types: tuple[str, ...]
+    return_type: str
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "parameter_types", tuple(self.parameter_types))
+
+    @property
+    def arity(self) -> int:
+        return len(self.parameter_types)
+
+    @property
+    def returns_value(self) -> bool:
+        return self.return_type != "void"

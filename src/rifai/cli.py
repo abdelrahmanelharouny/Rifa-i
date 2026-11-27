@@ -1,4 +1,4 @@
-"""Command-line interface for the Rifa'i compiler."""
+"""Command-line interface for the Rifa'i compiler and virtual machine."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from rifai import __version__
 from rifai.bytecode.disassembler import disassemble
 from rifai.bytecode.serializer import BytecodeFormatError, BytecodeSerializer
 from rifai.bytecode.verifier import BytecodeVerifier
+from rifai.compiler import Compiler
 from rifai.errors.diagnostics import Diagnostic
 from rifai.frontend.ast_nodes import format_ast
 from rifai.frontend.lexer import Lexer, LexResult
@@ -117,6 +118,44 @@ def _run_check_command(file_path: Path) -> int:
     return 0
 
 
+def _compile_source_file(file_path: Path):
+    source = _read_source(file_path)
+    if source is None:
+        return None
+    result = Compiler().compile(source, source_name=str(file_path))
+    if not result.is_success:
+        _print_diagnostics(result.diagnostics, file_path)
+        return None
+    return result.module
+
+
+def _run_compile_command(file_path: Path, output_path: Path | None) -> int:
+    if file_path.suffix.lower() != ".rif":
+        print(f"[io] Expected a .rif source file, got: {file_path}", file=sys.stderr)
+        return 1
+    module = _compile_source_file(file_path)
+    if module is None:
+        return 1
+    target = output_path or file_path.with_suffix(".rbc")
+    try:
+        BytecodeSerializer.write(module, target)
+    except (OSError, BytecodeFormatError) as exc:
+        print(f"[io] Could not write {target}: {exc}", file=sys.stderr)
+        return 1
+    validation = BytecodeVerifier().verify(module)
+    if not validation.is_valid:
+        _print_diagnostics(validation.diagnostics, file_path)
+        return 1
+    print(f"Compilation succeeded: {file_path} -> {target}")
+    print(
+        f"Bytecode v{module.format_version}: "
+        f"{len(module.main.instructions)} main instruction(s), "
+        f"{len(module.functions)} function(s), "
+        f"{len(module.constants)} constant(s)."
+    )
+    return 0
+
+
 def _load_bytecode(file_path: Path):
     try:
         module = BytecodeSerializer.read(file_path)
@@ -130,6 +169,49 @@ def _load_bytecode(file_path: Path):
     return module
 
 
+def _execute_module(module, source_path: Path) -> int:
+    try:
+        result = VirtualMachine().execute(module)
+    except BytecodeValidationError as exc:
+        _print_diagnostics(exc.diagnostics, source_path)
+        return 1
+    except VMRuntimeError as exc:
+        print(exc.diagnostic.format(str(source_path)), file=sys.stderr)
+        return 1
+    for line in result.output:
+        print(line)
+    return 0
+
+
+def _run_vm_command(file_path: Path) -> int:
+    module = _load_bytecode(file_path)
+    if module is None:
+        return 1
+    return _execute_module(module, file_path)
+
+
+def _run_command(file_path: Path) -> int:
+    if file_path.suffix.lower() == ".rbc":
+        module = _load_bytecode(file_path)
+        if module is None:
+            return 1
+        return _execute_module(module, file_path)
+    if file_path.suffix.lower() != ".rif":
+        print(
+            f"[io] Expected a .rif source or .rbc bytecode file, got: {file_path}",
+            file=sys.stderr,
+        )
+        return 1
+    module = _compile_source_file(file_path)
+    if module is None:
+        return 1
+    validation = BytecodeVerifier().verify(module)
+    if not validation.is_valid:
+        _print_diagnostics(validation.diagnostics, file_path)
+        return 1
+    return _execute_module(module, file_path)
+
+
 def _run_disasm_command(file_path: Path) -> int:
     module = _load_bytecode(file_path)
     if module is None:
@@ -138,28 +220,11 @@ def _run_disasm_command(file_path: Path) -> int:
     return 0
 
 
-def _run_vm_command(file_path: Path) -> int:
-    module = _load_bytecode(file_path)
-    if module is None:
-        return 1
-    try:
-        result = VirtualMachine().execute(module)
-    except BytecodeValidationError as exc:
-        _print_diagnostics(exc.diagnostics, file_path)
-        return 1
-    except VMRuntimeError as exc:
-        print(exc.diagnostic.format(str(file_path)), file=sys.stderr)
-        return 1
-    for line in result.output:
-        print(line)
-    return 0
-
-
 def build_parser() -> argparse.ArgumentParser:
     """Build the top-level Rifa'i CLI argument parser."""
     parser = argparse.ArgumentParser(
         prog="rifai",
-        description="Rifa'i programming language compiler and VM CLI.",
+        description="Rifa'i source compiler, bytecode toolchain, and virtual machine.",
     )
     parser.add_argument(
         "--version",
@@ -177,6 +242,28 @@ def build_parser() -> argparse.ArgumentParser:
     for name, help_text in source_commands:
         sub = subparsers.add_parser(name, help=help_text)
         sub.add_argument("file", type=Path, help="Path to a .rif source file.")
+
+    compile_parser = subparsers.add_parser(
+        "compile",
+        help="Compile a .rif source file into a .rbc bytecode module.",
+    )
+    compile_parser.add_argument("file", type=Path, help="Path to a .rif source file.")
+    compile_parser.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        help="Output .rbc path (defaults to the source path with a .rbc suffix).",
+    )
+
+    run_parser = subparsers.add_parser(
+        "run",
+        help="Compile and execute a .rif file, or execute an existing .rbc file.",
+    )
+    run_parser.add_argument(
+        "file",
+        type=Path,
+        help="Path to a .rif source file or .rbc bytecode file.",
+    )
 
     disasm_parser = subparsers.add_parser(
         "disasm",
@@ -196,6 +283,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Entrypoint for the Rifa'i CLI."""
     parser = build_parser()
     args = parser.parse_args(list(argv) if argv is not None else None)
+
+    if args.command == "compile":
+        return _run_compile_command(args.file, args.output)
+    if args.command == "run":
+        return _run_command(args.file)
+
     commands = {
         "tokens": _run_tokens_command,
         "parse": _run_parse_command,

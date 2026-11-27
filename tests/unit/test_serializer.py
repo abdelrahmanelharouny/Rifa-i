@@ -131,3 +131,26 @@ def test_rejects_duplicate_json_keys():
     )
     with pytest.raises(BytecodeFormatError, match="Duplicate JSON object key"):
         BytecodeSerializer.from_bytes(MAGIC + payload)
+
+
+def test_reads_and_executes_legacy_version_one_modules():
+    from rifai.bytecode import LEGACY_FORMAT_VERSION
+    from rifai.vm import VirtualMachine
+
+    legacy = BytecodeModule(
+        constants=(42,),
+        main=CodeChunk(
+            name="<main>",
+            instructions=(
+                Instruction(Opcode.CONSTANT, 0),
+                Instruction(Opcode.PRINT),
+                Instruction(Opcode.HALT),
+            ),
+        ),
+        format_version=LEGACY_FORMAT_VERSION,
+    )
+    encoded = BytecodeSerializer.to_bytes(legacy)
+    decoded = BytecodeSerializer.from_bytes(encoded)
+    assert decoded.format_version == LEGACY_FORMAT_VERSION
+    assert decoded == legacy
+    assert VirtualMachine().execute(decoded).output == ("42",)

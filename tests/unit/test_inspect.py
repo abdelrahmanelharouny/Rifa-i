@@ -20,7 +20,7 @@ def test_inspect_exports_all_pipeline_stages_as_json_safe_data() -> None:
     assert snapshot["stages"]["parser"]["ast"]["kind"] == "Program"
     assert snapshot["stages"]["semantic"]["global_symbols"]
     assert snapshot["stages"]["ir"]["ir_version"] == 1
-    assert snapshot["stages"]["ir"]["stats"]["block_count"] > 0
+    assert snapshot["stages"]["ir"]["stats"]["blocks"] > 0
     assert snapshot["stages"]["ir_pipeline"]["passes"]
     assert snapshot["stages"]["ir_analysis"]["functions"]["<main>"]["dominators"]
     bytecode = snapshot["stages"]["bytecode"]

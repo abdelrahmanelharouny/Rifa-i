@@ -70,7 +70,8 @@ jobs:
           rifai run examples/phase12_ir_optimization.rif --no-optimize > /tmp/rifai-phase12.txt
           python -c "from pathlib import Path; assert Path('/tmp/rifai-phase12.txt').read_text(encoding='utf-8').strip().splitlines() == ['42', '42']"
           rifai inspect examples/phase12_ir_optimization.rif --no-optimize --output /tmp/rifai-phase12.json
-          python -c "import json; p=json.load(open('/tmp/rifai-phase12.json', encoding='utf-8')); s=p['stages']['ir_pipeline']; assert p['success'] and s['constant_folds'] >= 2 and s['branches_simplified'] == 1 and s['blocks_removed'] >= 1"
+          python -c "import json; p=json.load(open('/tmp/rifai-phase12.json', encoding='utf-8')); s=p['stages']['ir_pipeline']; assert p['success'] and s['constant_folds'] == 0"
+          python -c "from pathlib import Path; from rifai import Compiler; p=Path('examples/phase12_ir_optimization.rif'); r=Compiler(optimize=False, ir_optimize=True).compile(p.read_text(encoding='utf-8')); s=r.ir_stats; assert r.is_success and s.constant_folds >= 2 and s.branches_simplified == 1 and s.blocks_removed >= 1"
 
       - name: Verify interactive debugger smoke test
         run: |

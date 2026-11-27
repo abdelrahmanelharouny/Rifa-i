@@ -375,23 +375,24 @@ class IRPassManager:
         self.numbering = IRValueNumberingPass()
         self.analyzer = IRAnalyzer()
 
-    def run(self, module: IRModule) -> IRPassResult:
+    def run(self, module: IRModule, *, optimize: bool = True) -> IRPassResult:
         initial = self.verifier.verify(module)
         if not initial.is_valid:
             raise ValueError("IR verification failed: " + "; ".join(initial.diagnostics[:5]))
         optimized = module
         constant_folds = branches_simplified = blocks_removed = parameter_constants = 0
-        limit = module.block_count + module.operation_count + 2
-        for _ in range(max(1, limit)):
-            optimized, folds, propagated = self.constants.run(optimized)
-            optimized, branches = self.branches.run(optimized)
-            optimized, removed = self.unreachable.run(optimized)
-            constant_folds += folds
-            branches_simplified += branches
-            blocks_removed += removed
-            parameter_constants = max(parameter_constants, propagated)
-            if not folds and not branches and not removed:
-                break
+        if optimize:
+            limit = module.block_count + module.operation_count + 2
+            for _ in range(max(1, limit)):
+                optimized, folds, propagated = self.constants.run(optimized)
+                optimized, branches = self.branches.run(optimized)
+                optimized, removed = self.unreachable.run(optimized)
+                constant_folds += folds
+                branches_simplified += branches
+                blocks_removed += removed
+                parameter_constants = max(parameter_constants, propagated)
+                if not folds and not branches and not removed:
+                    break
 
         normalized, renumbered = self.numbering.run(optimized)
         final = self.verifier.verify(normalized)
@@ -400,9 +401,14 @@ class IRPassManager:
                                + "; ".join(final.diagnostics[:5]))
         analysis = self.analyzer.analyze(normalized)
         stats = IRPassStats(
-            passes=("verify-input", self.constants.name, self.branches.name,
-                    self.unreachable.name, self.numbering.name, "verify-output",
-                    "cfg-dominator-analysis"),
+            passes=(
+                ("verify-input", self.constants.name, self.branches.name,
+                 self.unreachable.name, self.numbering.name, "verify-output",
+                 "cfg-dominator-analysis")
+                if optimize
+                else ("verify-input", self.numbering.name, "verify-output",
+                      "cfg-dominator-analysis")
+            ),
             function_count=analysis.function_count,
             block_count=analysis.block_count,
             operation_count=analysis.operation_count,

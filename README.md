@@ -15,7 +15,7 @@ Rifa'i (.rif) is a custom statically typed programming language implemented in P
 - **Phase 9 — Control-Flow Analysis (Complete):** Deterministic bytecode basic blocks, branch/fall-through edges, per-chunk reachability analysis, and structured CFG export through `rifai inspect`.
 - **Phase 10 — Data-Flow & Advanced Optimization (Complete):** CFG-aware constant propagation, constant-branch folding, unreachable-block elimination, profitable block-local common-subexpression elimination, and optimization statistics.
 - **Phase 11 — Intermediate Representation (Complete):** Typed explicit-value IR, basic-block parameters, bytecode-to-IR and IR-to-bytecode lowering, IR verification, canonical value numbering, dominator/loop analysis, and multi-pass compiler integration.
-- **Phase 12 — IR-Native Optimization (Complete):** Scalar constant propagation through IR values and block parameters, bounded constant folding, constant-branch simplification, unreachable-block elimination, fixed-point optimization, and verified lowering.
+- **Phase 12 — IR-Native Optimization (Complete):** Scalar constant propagation through IR values and block parameters, bounded constant folding, constant-branch simplification, unreachable-block elimination, fixed-point optimization, and verified lowering. `Compiler(optimize=False)` / `--no-optimize` disables both bytecode and IR transformations; `ir_optimize` can override the IR layer for isolated evaluation.
 
 ## Quick Start
 

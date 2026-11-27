@@ -74,7 +74,7 @@ def test_ir_roundtrip_preserves_bytecode_and_execution(source):
     assert compilation.is_success
 
     ir = BytecodeToIR().build(compilation.module)
-    passed = IRPassManager().run(ir)
+    passed = IRPassManager().run(ir, optimize=False)
     restored = IRToBytecode().lower(passed.module)
 
     assert restored == compilation.module
@@ -153,3 +153,6 @@ def test_compiler_exposes_ir_even_when_bytecode_optimization_is_disabled():
     assert result.optimization is None
     assert result.ir_module is not None
     assert result.ir_stats is not None
+    assert result.ir_stats.constant_folds == 0
+    assert result.ir_stats.branches_simplified == 0
+    assert "ir-constant-propagation" not in result.ir_stats.passes

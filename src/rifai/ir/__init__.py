@@ -15,7 +15,15 @@ from rifai.ir.model import (
     IRReturn,
     IRValue,
 )
-from rifai.ir.passes import IRPassManager, IRPassResult, IRPassStats, IRValueNumberingPass
+from rifai.ir.passes import (
+    IRBranchSimplificationPass,
+    IRConstantPropagationPass,
+    IRPassManager,
+    IRPassResult,
+    IRPassStats,
+    IRUnreachableBlockEliminationPass,
+    IRValueNumberingPass,
+)
 from rifai.ir.pipeline import IRPipeline, IRPipelineResult
 from rifai.ir.verifier import IRValidationResult, IRVerifier
 
@@ -25,6 +33,8 @@ __all__ = [
     "IRAnalyzer",
     "IRBlock",
     "IRBranch",
+    "IRBranchSimplificationPass",
+    "IRConstantPropagationPass",
     "IRFunction",
     "IRFunctionAnalysis",
     "IRHalt",
@@ -41,6 +51,7 @@ __all__ = [
     "IRToBytecode",
     "IRValidationResult",
     "IRValue",
+    "IRUnreachableBlockEliminationPass",
     "IRValueNumberingPass",
     "IRVerifier",
 ]

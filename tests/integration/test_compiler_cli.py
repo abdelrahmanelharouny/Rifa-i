@@ -14,7 +14,7 @@ def test_compile_command_writes_rbc_file(tmp_path, capsys):
 
 def test_run_command_compiles_and_executes_rif_source(tmp_path, capsys):
     source = tmp_path / "hello.rif"
-    source.write_text('print("hello from Rifa\\'i");', encoding="utf-8")
+    source.write_text("""print("hello from Rifa'i");""", encoding="utf-8")
     assert main(["run", str(source)]) == 0
     assert capsys.readouterr().out.strip() == "hello from Rifa'i"
 

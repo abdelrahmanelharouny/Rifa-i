@@ -48,6 +48,14 @@ jobs:
           rifai check examples/phase8_collections.rif
           rifai run examples/phase8_collections.rif
 
+      - name: Validate Phase 10 advanced optimization
+        run: |
+          rifai check examples/phase10_advanced_optimization.rif
+          rifai run examples/phase10_advanced_optimization.rif > /tmp/rifai-phase10.txt
+          python -c "from pathlib import Path; assert Path('/tmp/rifai-phase10.txt').read_text(encoding='utf-8').strip() == '42'"
+          rifai inspect examples/phase10_advanced_optimization.rif --output /tmp/rifai-phase10.json
+          python -c "import json; p=json.load(open('/tmp/rifai-phase10.json', encoding='utf-8')); s=p['stages']['bytecode']['optimization']; assert p['success'] and s['constant_loads_propagated'] > 0 and s['branches_folded'] > 0 and s['unreachable_instructions_removed'] > 0 and s['common_subexpressions_eliminated'] > 0"
+
       - name: Verify interactive debugger smoke test
         run: |
           printf '%s\n' continue continue | rifai debug examples/phase7_debugger.rif --breakpoint 4 > /tmp/rifai-debug.txt

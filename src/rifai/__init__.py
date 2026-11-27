@@ -1,6 +1,10 @@
 """Rifa'i compiler and Virtual Machine package."""
 
 from rifai.bytecode import (
+    BasicBlock,
+    ControlFlowGraph,
+    analyze_module_control_flow,
+    build_control_flow_graph,
     BytecodeDebugInfo,
     BytecodeDebugLocal,
     BytecodeFunction,
@@ -38,9 +42,13 @@ from rifai.vm import (
     VMRuntimeError,
 )
 
-__version__ = "0.9.0"
+__version__ = "0.10.0"
 
 __all__ = [
+    "BasicBlock",
+    "ControlFlowGraph",
+    "analyze_module_control_flow",
+    "build_control_flow_graph",
     "BytecodeDebugInfo",
     "BytecodeDebugLocal",
     "COLLECTIONS_FORMAT_VERSION",

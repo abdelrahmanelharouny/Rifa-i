@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from rifai import __version__
+from rifai.bytecode.cfg import analyze_module_control_flow
 from rifai.bytecode.disassembler import disassemble
 from rifai.compiler import Compiler
 from rifai.frontend.ast_nodes import ASTNode
@@ -207,6 +208,10 @@ def inspect_source(
         ],
         "disassembly": disassemble(module),
         "optimization": _safe(compilation.optimization),
+        "control_flow": {
+            name: graph.as_dict()
+            for name, graph in analyze_module_control_flow(module).items()
+        },
     }
     result["success"] = True
     return result

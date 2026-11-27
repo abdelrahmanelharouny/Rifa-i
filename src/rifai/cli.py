@@ -402,7 +402,7 @@ def build_parser() -> argparse.ArgumentParser:
     compile_parser.add_argument(
         "--no-optimize",
         action="store_true",
-        help="Disable bytecode optimization for debugging or benchmarking.",
+        help="Disable both bytecode and IR optimizations for debugging or benchmarking.",
     )
 
     run_parser = subparsers.add_parser(
@@ -417,7 +417,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument(
         "--no-optimize",
         action="store_true",
-        help="Disable optimization when the input is a .rif source file.",
+        help="Disable bytecode and IR optimization for .rif source files.",
     )
 
     disasm_parser = subparsers.add_parser(
@@ -438,7 +438,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     inspect_parser.add_argument("file", type=Path, help="Path to a .rif source file.")
     inspect_parser.add_argument("-o", "--output", type=Path, help="Write JSON to this path instead of stdout.")
-    inspect_parser.add_argument("--no-optimize", action="store_true", help="Inspect unoptimized bytecode.")
+    inspect_parser.add_argument("--no-optimize", action="store_true", help="Inspect without bytecode or IR optimization.")
 
     debug_parser = subparsers.add_parser(
         "debug",
@@ -451,7 +451,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     debug_parser.add_argument(
         "--no-optimize", action="store_true",
-        help="Disable bytecode optimization to retain the most direct source-level stepping.",
+        help="Disable bytecode and IR optimization to retain the most direct source-level stepping.",
     )
 
     subparsers.add_parser("debug-adapter", help="Start the Rifa'i Debug Adapter Protocol server over stdio.")

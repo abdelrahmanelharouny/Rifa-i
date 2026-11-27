@@ -159,6 +159,20 @@ class IRVerifier:
                 report(f"block {block.block_id} has an unknown terminator.")
 
         for block in function.blocks:
+            # Bytecode verification intentionally permits stack-inconsistent
+            # control flow in unreachable regions; these edges cannot be taken
+            # and therefore do not participate in live block-parameter joins.
+            if not block.reachable:
+                for target in (
+                    (block.terminator.target,)
+                    if isinstance(block.terminator, IRJump)
+                    else (block.terminator.false_target, block.terminator.true_target)
+                    if isinstance(block.terminator, IRBranch)
+                    else ()
+                ):
+                    if target not in block_map:
+                        report(f"block {block.block_id} targets missing block {target}.")
+                continue
             term = block.terminator
             edge_list: tuple[tuple[int, tuple[int, ...]], ...]
             if isinstance(term, IRJump):

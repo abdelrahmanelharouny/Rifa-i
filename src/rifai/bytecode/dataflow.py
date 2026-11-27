@@ -192,7 +192,7 @@ def _execute_abstract_instruction(
         else:
             stack.append(_UNKNOWN)
     elif opcode in _BINARY:
-        right, left = _pop(stack, 2)
+        left, right = _pop(stack, 2)
         if _is_constant(left) and _is_constant(right):
             from rifai.bytecode.optimizer import _UNFOLDABLE, _safe_fold
             result = _safe_fold(opcode, left, right)
@@ -527,7 +527,7 @@ def _cse_chunk(
             if opcode in _UNARY or opcode in _BINARY:
                 arity = 1 if opcode in _UNARY else 2
                 values = _pop(stack, arity)
-                operands = tuple(values if arity == 1 else reversed(values))
+                operands = tuple(values)
                 typed = all(isinstance(item, _ExprValue) for item in operands)
                 result_type = _expression_type(opcode, operands) if typed else None
                 start = min((item.start for item in operands), default=index) if typed else index
@@ -685,9 +685,7 @@ def optimize_module_dataflow(module: BytecodeModule) -> DataFlowResult:
 
     new_functions = []
     for function in current.functions:
-        known_types = dict(function_types := {
-            index: rifai_type for index, rifai_type in enumerate(function.parameter_types)
-        })
+        known_types = {index: rifai_type for index, rifai_type in enumerate(function.parameter_types)}
         known_types.update({
             slot: type_name
             for slot, (_, type_name) in debug_maps.get(function.name, {}).items()

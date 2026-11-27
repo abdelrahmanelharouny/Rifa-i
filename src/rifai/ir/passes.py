@@ -113,7 +113,7 @@ def _edges(block, known: dict[int, object] | None = None):
         if type(value) is bool:
             return (((term.true_target, term.true_arguments),) if value
                     else ((term.false_target, term.false_arguments),))
-        if term.false_target == term.true_target:
+        if term.false_target == term.true_target and term.false_arguments == term.true_arguments:
             return ((term.false_target, term.false_arguments),)
         return ((term.false_target, term.false_arguments),
                 (term.true_target, term.true_arguments))

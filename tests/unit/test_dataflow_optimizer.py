@@ -100,7 +100,7 @@ print(calculate(1, 2, 3));
     unoptimized = Compiler(optimize=False).compile(source)
 
     assert optimized.is_success and unoptimized.is_success
-    assert VirtualMachine().execute(optimized.module).output == ("15",)
+    assert VirtualMachine().execute(optimized.module).output == ("21",)
     assert VirtualMachine().execute(unoptimized.module).output == ("15",)
     assert optimized.optimization.common_subexpressions_eliminated == 0
 

@@ -1,0 +1,8 @@
+// Phase 12: IR-native constant folding and branch pruning.
+print(10 + 32);
+
+if (1 < 2) {
+    print(42);
+} else {
+    print(0);
+}

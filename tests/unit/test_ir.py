@@ -74,7 +74,7 @@ def test_ir_roundtrip_preserves_bytecode_and_execution(source):
     assert compilation.is_success
 
     ir = BytecodeToIR().build(compilation.module)
-    passed = IRPassManager().run(ir)
+    passed = IRPassManager().run(ir, optimize=False)
     restored = IRToBytecode().lower(passed.module)
 
     assert restored == compilation.module

@@ -34,5 +34,15 @@ jobs:
       - name: Run complete test suite
         run: python -m pytest -v
 
+      - name: Verify developer experience commands
+        run: |
+          rifai-lsp --version
+          rifai inspect examples/hello.rif --output /tmp/rifai-inspect.json
+          python -c "import json; p=json.load(open('/tmp/rifai-inspect.json', encoding='utf-8')); assert p['success'] and p['stages']['bytecode']['format_version'] == 2"
+
+      - name: Validate VS Code extension manifests
+        run: |
+          python -c "import json; from pathlib import Path; files=['editors/vscode/package.json','editors/vscode/language-configuration.json','editors/vscode/syntaxes/rifai.tmLanguage.json','editors/vscode/snippets/rifai.json']; [json.loads(Path(p).read_text(encoding='utf-8')) for p in files]"
+
       - name: Verify benchmark CLI smoke test
         run: python benchmarks/benchmark_pipeline.py --iterations 100 --repeat 1

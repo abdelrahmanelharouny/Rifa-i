@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -232,6 +233,24 @@ def _run_disasm_command(file_path: Path) -> int:
     return 0
 
 
+def _run_inspect_command(file_path: Path, output_path: Path | None, *, optimize: bool) -> int:
+    source = _read_source(file_path)
+    if source is None:
+        return 1
+    from rifai.inspect import inspect_source
+    snapshot = inspect_source(source, source_name=str(file_path), optimize=optimize)
+    rendered = json.dumps(snapshot, ensure_ascii=False, indent=2) + "\n"
+    if output_path is None:
+        sys.stdout.write(rendered)
+    else:
+        try:
+            output_path.write_text(rendered, encoding="utf-8")
+        except OSError as exc:
+            print(f"[io] Could not write {output_path}: {exc}", file=sys.stderr)
+            return 1
+    return 0 if snapshot["success"] else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the top-level Rifa'i CLI argument parser."""
     parser = argparse.ArgumentParser(
@@ -298,6 +317,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Verify and execute a compiled Rifa'i .rbc file in the Rifa'i VM.",
     )
     vm_parser.add_argument("file", type=Path, help="Path to a .rbc bytecode file.")
+
+    inspect_parser = subparsers.add_parser(
+        "inspect",
+        help="Export lexer, AST, semantic, and bytecode pipeline data as JSON.",
+    )
+    inspect_parser.add_argument("file", type=Path, help="Path to a .rif source file.")
+    inspect_parser.add_argument("-o", "--output", type=Path, help="Write JSON to this path instead of stdout.")
+    inspect_parser.add_argument("--no-optimize", action="store_true", help="Inspect unoptimized bytecode.")
+
+    subparsers.add_parser("lsp", help="Start the Rifa'i Language Server over stdio.")
     return parser
 
 
@@ -314,6 +343,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     if args.command == "run":
         return _run_command(args.file, optimize=not args.no_optimize)
+    if args.command == "inspect":
+        if args.file.suffix.lower() != ".rif":
+            print(f"[io] Expected a .rif source file, got: {args.file}", file=sys.stderr)
+            return 2
+        return _run_inspect_command(args.file, args.output, optimize=not args.no_optimize)
+    if args.command == "lsp":
+        from rifai.lsp import serve
+        return serve()
 
     commands = {
         "tokens": _run_tokens_command,

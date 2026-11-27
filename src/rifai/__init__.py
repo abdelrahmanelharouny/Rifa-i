@@ -24,7 +24,7 @@ from rifai.frontend.tokens import KEYWORDS, Token, TokenType
 from rifai.frontend.types import RifaiType
 from rifai.vm import ExecutionResult, VirtualMachine, VMRuntimeError
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 
 __all__ = [
     "BytecodeFunction",

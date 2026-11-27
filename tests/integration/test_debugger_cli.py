@@ -25,9 +25,9 @@ def test_debug_cli_accepts_standalone_rbc_after_source_is_removed(
     bytecode = source.with_suffix(".rbc")
     source.unlink()
 
-    commands = iter(["continue"])
+    commands = iter(["continue", "globals", "continue"])
     monkeypatch.setattr("builtins.input", lambda _: next(commands))
-    assert main(["debug", str(bytecode)]) == 0
+    assert main(["debug", str(bytecode), "--breakpoint", "2"]) == 0
     output = capsys.readouterr().out
     assert "Paused (entry)" in output
     assert "answer" in output

@@ -36,7 +36,8 @@ def test_compiler_embeds_source_and_local_symbols_and_rbc_round_trips() -> None:
     assert symbols["add"][0] == ("a", "int")
     assert symbols["add"][1] == ("b", "int")
     assert ("result", "int") in symbols["add"].values()
-    assert ("answer", "int") in symbols["<main>"].values()
+    # Top-level declarations are globals, not local slots in the main frame.
+    assert symbols["<main>"] == {}
 
     restored = BytecodeSerializer.from_bytes(BytecodeSerializer.to_bytes(module))
     assert restored == module
@@ -48,10 +49,8 @@ def test_compiler_embeds_source_and_local_symbols_and_rbc_round_trips() -> None:
     )
     assert execution.output == ("42",)
     assert any(
-        local.name == "answer"
+        ("answer", 42) in snapshot.globals
         for snapshot in snapshots
-        for frame in snapshot.frames
-        for local in frame.locals
     )
 
 

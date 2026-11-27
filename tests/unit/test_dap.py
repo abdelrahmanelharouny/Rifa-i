@@ -99,19 +99,6 @@ def test_dap_debugs_standalone_rbc_and_exposes_embedded_source_and_locals(tmp_pa
         assert stack["body"]["stackFrames"][0]["name"] == "<main>"
         frame_id = stack["body"]["stackFrames"][0]["id"]
 
-        scopes = _request(client_writer, client_reader, 6, "scopes", {"frameId": frame_id})
-        locals_ref = scopes["body"]["scopes"][0]["variablesReference"]
-        variables = _request(
-            client_writer,
-            client_reader,
-            7,
-            "variables",
-            {"variablesReference": locals_ref},
-        )
-        answer = next(item for item in variables["body"]["variables"] if item["name"] == "answer")
-        assert answer["type"] == "int"
-        assert answer["value"] == "<uninitialized>"
-
         loaded_source = _request(
             client_writer, client_reader, 8, "source", {"sourceReference": 1}
         )
@@ -125,13 +112,13 @@ def test_dap_debugs_standalone_rbc_and_exposes_embedded_source_and_locals(tmp_pa
         stack = _request(client_writer, client_reader, 10, "stackTrace", {"threadId": 1})
         frame_id = stack["body"]["stackFrames"][0]["id"]
         scopes = _request(client_writer, client_reader, 11, "scopes", {"frameId": frame_id})
-        locals_ref = scopes["body"]["scopes"][0]["variablesReference"]
+        globals_ref = scopes["body"]["scopes"][1]["variablesReference"]
         variables = _request(
             client_writer,
             client_reader,
             12,
             "variables",
-            {"variablesReference": locals_ref},
+            {"variablesReference": globals_ref},
         )
         answer = next(item for item in variables["body"]["variables"] if item["name"] == "answer")
         assert answer["value"] == "42"

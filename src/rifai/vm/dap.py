@@ -66,6 +66,7 @@ class RifaIDebugAdapter:
         self._resume_requested = False
         self._resume_mode = "continue"
         self._terminated = False
+        self._disconnected = False
         self._worker_finished = False
         self._paused_snapshot: InstructionSnapshot | None = None
         self._frame_ids: dict[int, int] = {}
@@ -241,6 +242,7 @@ class RifaIDebugAdapter:
         self._breakpoint_ids.clear()
         self._next_breakpoint_id = 1
         self._terminated = False
+        self._disconnected = False
         self._worker_finished = False
         self._paused_snapshot = None
         self._frame_ids.clear()
@@ -557,27 +559,46 @@ class RifaIDebugAdapter:
                 self._event("output", {"category": "stdout", "output": line + "\n"})
         except _AbortDebugSession:
             exit_code = 0
+        except OSError:
+            # The editor may close its DAP transport while the VM is running.
+            self._disconnected = True
+            self._terminated = True
+            exit_code = 0
         except VMRuntimeError as exc:
             exit_code = 1
             rendered = exc.diagnostic.format(self._source_name)
             self._execution_error = rendered
-            self._event("output", {"category": "stderr", "output": rendered + "\n"})
+            try:
+                self._event("output", {"category": "stderr", "output": rendered + "\n"})
+            except OSError:
+                self._disconnected = True
         except BytecodeValidationError as exc:
             exit_code = 1
             rendered = "\n".join(item.format(self._source_name) for item in exc.diagnostics)
             self._execution_error = rendered
-            self._event("output", {"category": "stderr", "output": rendered + "\n"})
+            try:
+                self._event("output", {"category": "stderr", "output": rendered + "\n"})
+            except OSError:
+                self._disconnected = True
         except Exception as exc:  # Defensive boundary: never leak a worker traceback over DAP stdout.
             exit_code = 1
             self._execution_error = f"Debug adapter execution failed: {exc}"
-            self._event("output", {"category": "stderr", "output": self._execution_error + "\n"})
+            try:
+                self._event("output", {"category": "stderr", "output": self._execution_error + "\n"})
+            except OSError:
+                self._disconnected = True
         finally:
             with self._condition:
                 self._worker_finished = True
                 self._paused_snapshot = None
                 self._condition.notify_all()
-            self._event("exited", {"exitCode": exit_code})
-            self._event("terminated", {})
+                disconnected = self._disconnected
+            if not disconnected:
+                try:
+                    self._event("exited", {"exitCode": exit_code})
+                    self._event("terminated", {})
+                except OSError:
+                    self._disconnected = True
 
     def _resume(self, request: Mapping[str, Any], mode: str) -> None:
         with self._condition:
@@ -663,6 +684,7 @@ class RifaIDebugAdapter:
                 self._response(request)
             elif command == "disconnect":
                 with self._condition:
+                    self._disconnected = True
                     self._terminated = True
                     self._condition.notify_all()
                 self._response(request)
@@ -689,10 +711,14 @@ class RifaIDebugAdapter:
                 if not self._dispatch(request):
                     break
         except DAPProtocolError as exc:
-            self._event("output", {"category": "stderr", "output": f"DAP protocol error: {exc}\n"})
+            try:
+                self._event("output", {"category": "stderr", "output": f"DAP protocol error: {exc}\n"})
+            except OSError:
+                pass
             return 2
         finally:
             with self._condition:
+                self._disconnected = True
                 self._terminated = True
                 self._condition.notify_all()
             if self._worker is not None:

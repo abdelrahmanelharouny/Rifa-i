@@ -15,7 +15,7 @@ def test_disassembler_shows_constants_opcodes_and_source_locations():
         source_name="hello.rif",
     )
     listing = disassemble(module)
-    assert "Rifa'i Bytecode v2" in listing
+    assert "Rifa'i Bytecode v3" in listing
     assert "hello.rif" in listing
     assert "INTEGER" not in listing
     assert "CONSTANT" in listing

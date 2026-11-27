@@ -241,8 +241,7 @@ def main(argv: list[str] | None = None) -> int:
         source_name=str(args.file),
         optimize=not args.no_optimize,
     )
-    rendered = json.dumps(snapshot, ensure_ascii=False, indent=2) + "
-"
+    rendered = json.dumps(snapshot, ensure_ascii=False, indent=2) + "\n"
     if args.output is None:
         sys.stdout.write(rendered)
     else:

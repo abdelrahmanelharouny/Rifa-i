@@ -9,6 +9,7 @@ Rifa'i (.rif) is a custom statically typed programming language implemented in P
 - **Phase 3 — Bytecode and VM Core (Complete):** Versioned bytecode container, typed constant pool, instruction set, verifier, serializer, disassembler, and stack-based VM core.
 - **Phase 4 — Code Generation and Full Execution (Complete):** AST-to-bytecode compiler, globals and local slots, control flow, function chunks, call frames, recursion, end-to-end source compilation, and compile / run CLI commands.
 - **Phase 5 — Optimization and Final Hardening (Complete):** Conservative bytecode optimization, bounded VM resources, hardened bytecode validation and atomic serialization, reproducible performance benchmarks, final examples, and delivery documentation.
+- **Phase 6 — Developer Experience (Complete):** stdio Language Server Protocol implementation, VS Code language extension, live diagnostics, completion, hover, definition/references, document symbols, signature help, and structured compiler-pipeline inspection.
 
 ## Quick Start
 
@@ -32,6 +33,13 @@ python -m rifai run examples/phase5_optimization.rbc
 # Inspect compiled bytecode
 python -m rifai disasm examples/phase5_optimization.rbc
 
+# Export the complete compiler pipeline as structured JSON
+rifai inspect examples/hello.rif -o hello.inspect.json
+
+# Start the Language Server (VS Code runs this over stdio)
+rifai-lsp
+# or: rifai lsp
+
 # Run the complete test suite
 python -m pytest -v
 ```
@@ -49,6 +57,8 @@ python -m pytest -v
 | rifai run file.rbc | Execute an existing bytecode module |
 | rifai disasm file.rbc | Verify and disassemble bytecode |
 | rifai vm file.rbc | Execute an existing bytecode module |
+| rifai inspect file.rif [-o report.json] [--no-optimize] | Export tokens, AST, semantic bindings, bytecode, and optimization data as JSON |
+| rifai lsp | Start the stdio Language Server |
 
 ## Phase 5: Optimization
 
@@ -81,3 +91,14 @@ The suite covers lexical and syntactic analysis, semantic errors, bytecode verif
 ```bash
 python -m pytest -v
 ```
+
+
+## Phase 6: Developer Experience
+
+Rifa'i now includes a dependency-free Python Language Server using JSON-RPC 2.0 and Content-Length framed stdio. It supports document open/change/close, full-document synchronization, UTF-16 position conversion, live lexer/parser/semantic diagnostics, completions, hover type and signature information, go to definition, references, document symbols, and function signature help. Open-document versions are checked so stale changes are ignored. The server can be launched with `rifai-lsp` or `rifai lsp`.
+
+The VS Code extension lives in [editors/vscode](editors/vscode). It provides `.rif` file association, syntax highlighting, language configuration, snippets, and LSP client integration. Install the Python package in the selected environment with `pip install -e .`, then set **Rifa'i: Server Path** to the `rifai` executable when it is not on PATH.
+
+Use `rifai inspect examples/hello.rif -o hello.inspect.json` to export a versioned JSON snapshot containing tokens and source offsets, the structured AST, global semantic symbols, inferred expression types, constants, main and function bytecode chunks, disassembly, optimization statistics, and source diagnostics. The schema is designed as a stable foundation for an interactive Compiler Explorer or Rifa'i Studio frontend.
+
+Editor integration details and packaging instructions are documented in [editors/vscode/README.md](editors/vscode/README.md) and [docs/phase6-report.md](docs/phase6-report.md).

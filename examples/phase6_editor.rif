@@ -1,0 +1,14 @@
+// Rifa'i editor tooling example
+
+fn multiply(value: int, factor: int) -> int {
+    let result: int = value * factor;
+    return result;
+}
+
+fn describe(label: string, value: int) -> void {
+    print(label + ": ");
+    print(value);
+}
+
+let total: int = multiply(21, 2);
+describe("Answer", total);

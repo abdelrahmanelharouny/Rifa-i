@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rifai"
-version = "0.5.0"
+version = "0.6.0"
 description = "Rifa'i programming language compiler and virtual machine"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -15,6 +15,7 @@ dev = ["pytest>=8.0"]
 
 [project.scripts]
 rifai = "rifai.cli:main"
+rifai-lsp = "rifai.lsp:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

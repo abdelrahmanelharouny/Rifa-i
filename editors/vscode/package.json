@@ -1,0 +1,45 @@
+{
+  "name": "rifai-language",
+  "displayName": "Rifa'i Language Support",
+  "description": "Language support and Language Server integration for the Rifa'i programming language.",
+  "version": "0.6.0",
+  "publisher": "abdelrahmanelharouny",
+  "license": "MIT",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Programming Languages", "Other"],
+  "keywords": ["rifai", "language", "compiler", "language-server"],
+  "main": "./extension.js",
+  "activationEvents": ["onLanguage:rifai"],
+  "contributes": {
+    "languages": [
+      {
+        "id": "rifai",
+        "aliases": ["Rifa'i", "rifai"],
+        "extensions": [".rif"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "rifai",
+        "scopeName": "source.rifai",
+        "path": "./syntaxes/rifai.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      { "language": "rifai", "path": "./snippets/rifai.json" }
+    ],
+    "configuration": {
+      "title": "Rifa'i",
+      "properties": {
+        "rifai.serverPath": {
+          "type": "string",
+          "default": "rifai",
+          "description": "Executable used to start the Rifa'i Language Server. The extension launches it with the lsp argument."
+        }
+      }
+    }
+  },
+  "scripts": { "package": "vsce package" },
+  "dependencies": { "vscode-languageclient": "^9.0.1" }
+}

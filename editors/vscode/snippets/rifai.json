@@ -1,0 +1,51 @@
+{
+  "Function": {
+    "prefix": "fn",
+    "body": [
+      "fn \u0024{1:name}(\u0024{2:arg}: \u0024{3:int}) -> \u0024{4:int} {",
+      "    \u00240:return \u0024{2:arg};",
+      "}"
+    ],
+    "description": "Declare a typed Rifa'i function"
+  },
+  "Print": {
+    "prefix": "print",
+    "body": ["print(\u0024{1:value});"],
+    "description": "Print a value"
+  },
+  "Variable": {
+    "prefix": "let",
+    "body": ["let \u0024{1:name}: \u0024{2:int} = \u0024{3:0};"],
+    "description": "Declare a typed variable"
+  },
+  "If / Else": {
+    "prefix": "ifelse",
+    "body": [
+      "if (\u0024{1:condition}) {",
+      "    \u0024{2:}",
+      "} else {",
+      "    \u00240",
+      "}"
+    ],
+    "description": "Create an if / else statement"
+  },
+  "While Loop": {
+    "prefix": "while",
+    "body": [
+      "while (\u0024{1:condition}) {",
+      "    \u00240",
+      "}"
+    ],
+    "description": "Create a while loop"
+  },
+  "Main Example": {
+    "prefix": "rifai-main",
+    "body": [
+      "fn main() -> void {",
+      "    let message: string = \"Hello, Rifa'i!\";",
+      "    print(message);",
+      "}"
+    ],
+    "description": "Starter Rifa'i program"
+  }
+}

@@ -102,6 +102,11 @@ class IRVerifier:
             report("the entry block must have identifier 0.")
         definitions: set[int] = set()
         definition_types: dict[int, str | None] = {}
+        local_types = {
+            item.slot: item.type_name
+            for item in function.local_symbols
+            if hasattr(item, "slot") and hasattr(item, "type_name")
+        }
         edges: list[tuple[int, tuple[int, ...]]] = []
         branch_edges: list[tuple[int, tuple[int, ...]]] = []
 
@@ -138,6 +143,15 @@ class IRVerifier:
                         f"{operation.opcode.value} in block {block.block_id} expects "
                         f"{expected_outputs} output value(s), found {len(operation.outputs)}."
                     )
+                self._verify_operation_types(
+                    module,
+                    operation,
+                    tuple(definition_types.get(value_id) for value_id in operation.inputs),
+                    local_types,
+                    functions,
+                    report,
+                    block.block_id,
+                )
                 for output in operation.outputs:
                     self._define(output, definitions, local_definitions, report)
                     if isinstance(output, IRValue):
@@ -165,6 +179,11 @@ class IRVerifier:
                     report(f"non-void function has an empty return in block {block.block_id}.")
                 if term.value is not None:
                     self._use(term.value, local_definitions, report, block.block_id)
+                    actual_type = definition_types.get(term.value)
+                    if actual_type is not None and actual_type != function.return_type:
+                        report(
+                            f"return value has type {actual_type}, expected {function.return_type}."
+                        )
             elif isinstance(term, IRHalt):
                 if function.name != "<main>":
                     report("HALT is only valid in the main function.")
@@ -249,6 +268,120 @@ class IRVerifier:
     def _use(value_id: int, local_definitions: set[int], report, block_id: int) -> None:
         if type(value_id) is not int or value_id not in local_definitions:
             report(f"block {block_id} uses undefined or non-local virtual value %{value_id}.")
+
+    @staticmethod
+    def _verify_operation_types(
+        module,
+        operation,
+        input_types,
+        local_types,
+        functions,
+        report,
+        block_id,
+    ) -> None:
+        opcode = operation.opcode
+        output_types = [value.type_name for value in operation.outputs]
+        known = all(value is not None for value in input_types)
+        scalar_numeric = {"int", "float"}
+        array_element = {
+            Opcode.ARRAY_NEW_INT: "int",
+            Opcode.ARRAY_NEW_FLOAT: "float",
+            Opcode.ARRAY_NEW_BOOL: "bool",
+            Opcode.ARRAY_NEW_STRING: "string",
+        }
+
+        def check_output(expected: str | None) -> None:
+            if expected is not None and output_types and output_types[0] not in (None, expected):
+                report(
+                    f"{opcode.value} in block {block_id} produces {output_types[0]}, "
+                    f"expected {expected}."
+                )
+
+        def check_input(index: int, expected: str | None) -> None:
+            if expected is not None and index < len(input_types):
+                actual = input_types[index]
+                if actual is not None and actual != expected:
+                    report(
+                        f"{opcode.value} in block {block_id} expects {expected} input, "
+                        f"found {actual}."
+                    )
+
+        if opcode is Opcode.CONSTANT:
+            if type(operation.operand) is int and 0 <= operation.operand < len(module.constants):
+                value = module.constants[operation.operand]
+                expected = (
+                    "bool" if type(value) is bool else
+                    "int" if type(value) is int else
+                    "float" if type(value) is float else
+                    "string" if isinstance(value, str) else None
+                )
+                check_output(expected)
+        elif opcode is Opcode.LOAD_LOCAL:
+            check_output(local_types.get(operation.operand))
+        elif opcode is Opcode.STORE_LOCAL:
+            expected = local_types.get(operation.operand)
+            check_input(0, expected)
+        elif opcode is Opcode.NOT:
+            check_input(0, "bool")
+            check_output("bool")
+        elif opcode is Opcode.NEGATE:
+            if known and input_types[0] not in scalar_numeric:
+                report(f"NEGATE in block {block_id} requires a numeric input.")
+            check_output(input_types[0] if input_types else None)
+        elif opcode in (Opcode.AND, Opcode.OR):
+            check_input(0, "bool")
+            check_input(1, "bool")
+            check_output("bool")
+        elif opcode in _BINARY:
+            left = input_types[0] if input_types else None
+            right = input_types[1] if len(input_types) > 1 else None
+            if opcode in (Opcode.EQUAL, Opcode.NOT_EQUAL):
+                if left is not None and right is not None and left != right:
+                    report(f"{opcode.value} in block {block_id} has mismatched input types.")
+                check_output("bool")
+            elif opcode in (Opcode.LESS, Opcode.LESS_EQUAL, Opcode.GREATER, Opcode.GREATER_EQUAL):
+                if known and (left not in scalar_numeric or right != left):
+                    report(f"{opcode.value} in block {block_id} requires matching numeric inputs.")
+                check_output("bool")
+            elif opcode is Opcode.ADD and left == right == "string":
+                check_output("string")
+            else:
+                if known and (left not in scalar_numeric or right != left):
+                    report(f"{opcode.value} in block {block_id} requires matching numeric inputs.")
+                check_output("float" if opcode is Opcode.DIVIDE and left in scalar_numeric else left)
+                if opcode is Opcode.MODULO and known and left != "int":
+                    report(f"MODULO in block {block_id} requires integer inputs.")
+        elif opcode in array_element:
+            expected_element = array_element[opcode]
+            if known and any(item != expected_element for item in input_types):
+                report(f"{opcode.value} in block {block_id} has an element type mismatch.")
+            check_output(expected_element + "[]")
+        elif opcode in (Opcode.ARRAY_GET, Opcode.ARRAY_SET, Opcode.ARRAY_PUSH, Opcode.ARRAY_POP):
+            array_type = input_types[0] if input_types else None
+            if array_type is not None and not array_type.endswith("[]"):
+                report(f"{opcode.value} in block {block_id} requires an array operand.")
+            element_type = array_type[:-2] if array_type and array_type.endswith("[]") else None
+            if opcode in (Opcode.ARRAY_GET, Opcode.ARRAY_SET):
+                check_input(1, "int")
+            if opcode is Opcode.ARRAY_GET:
+                check_output(element_type)
+            elif opcode is Opcode.ARRAY_SET:
+                check_input(2, element_type)
+            elif opcode is Opcode.ARRAY_PUSH:
+                check_input(1, element_type)
+            else:
+                check_output(element_type)
+        elif opcode is Opcode.LENGTH:
+            value_type = input_types[0] if input_types else None
+            if value_type is not None and value_type != "string" and not value_type.endswith("[]"):
+                report(f"LENGTH in block {block_id} requires a string or array.")
+            check_output("int")
+        elif opcode is Opcode.CALL:
+            target = functions.get(operation.operand)
+            if target is not None:
+                for index, expected in enumerate(target.parameter_types):
+                    check_input(index, expected)
+                check_output(target.return_type if target.return_type != "void" else None)
 
     @staticmethod
     def _operation_shape(module, operation, functions, report):

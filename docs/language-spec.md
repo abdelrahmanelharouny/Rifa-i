@@ -115,3 +115,8 @@ From highest to lowest:
 6. Equality (left-associative): `==`, `!=`
 7. Logical AND (left-associative): `and`
 8. Logical OR (left-associative): `or`
+
+
+## 8. Logical Evaluation
+
+The version 1 language evaluates both operands of the logical operators and and or before applying the logical operation. These operators are eager, not short-circuiting. This is consistent with the version 1 bytecode AND and OR instructions. A future language version may introduce short-circuit semantics only with an explicit specification and bytecode compatibility decision.

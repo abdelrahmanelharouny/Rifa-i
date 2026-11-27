@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import math
 from pathlib import Path
-from typing import Any
 
 from rifai.bytecode.chunk import CodeChunk
 from rifai.bytecode.instructions import Instruction, Opcode, SourceLocation
@@ -135,6 +134,15 @@ def _chunk_from_json(raw: object) -> CodeChunk:
     )
 
 
+def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise BytecodeFormatError(f"Duplicate JSON object key: {key!r}.")
+        result[key] = value
+    return result
+
+
 class BytecodeSerializer:
     """Encode and decode the Rifa'i versioned bytecode container."""
 
@@ -150,14 +158,14 @@ class BytecodeSerializer:
         if any(not is_constant(value) for value in module.constants):
             raise BytecodeFormatError("Module contains an unsupported constant.")
 
-        payload = {
-            "magic": "RIFAI",
-            "format_version": module.format_version,
-            "source_name": module.source_name,
-            "constants": [_constant_to_json(value) for value in module.constants],
-            "main": _chunk_to_json(module.main),
-        }
         try:
+            payload = {
+                "magic": "RIFAI",
+                "format_version": module.format_version,
+                "source_name": module.source_name,
+                "constants": [_constant_to_json(value) for value in module.constants],
+                "main": _chunk_to_json(module.main),
+            }
             encoded = json.dumps(
                 payload,
                 ensure_ascii=False,
@@ -165,8 +173,11 @@ class BytecodeSerializer:
                 separators=(",", ":"),
                 sort_keys=True,
             ).encode("utf-8")
-        except (TypeError, ValueError, UnicodeEncodeError) as exc:
+        except (AttributeError, TypeError, ValueError, UnicodeEncodeError) as exc:
+            if isinstance(exc, BytecodeFormatError):
+                raise
             raise BytecodeFormatError(f"Unable to serialize bytecode: {exc}") from exc
+
         data = MAGIC + encoded
         if len(data) > MAX_BYTECODE_SIZE:
             raise BytecodeFormatError("Bytecode module exceeds the maximum file size.")
@@ -181,7 +192,10 @@ class BytecodeSerializer:
         if not data.startswith(MAGIC):
             raise BytecodeFormatError("Invalid Rifa'i bytecode magic header.")
         try:
-            payload = json.loads(data[len(MAGIC):].decode("utf-8"))
+            payload = json.loads(
+                data[len(MAGIC):].decode("utf-8"),
+                object_pairs_hook=_unique_object,
+            )
         except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
             raise BytecodeFormatError(f"Invalid bytecode payload: {exc}") from exc
 
@@ -221,10 +235,7 @@ class BytecodeSerializer:
     @classmethod
     def read(cls, path: str | Path) -> BytecodeModule:
         target = Path(path)
-        try:
-            size = target.stat().st_size
-        except OSError:
-            raise
+        size = target.stat().st_size
         if size > MAX_BYTECODE_SIZE:
             raise BytecodeFormatError("Bytecode module exceeds the maximum file size.")
         return cls.from_bytes(target.read_bytes())

@@ -118,3 +118,16 @@ def test_rejects_boolean_as_integer_operand():
     }
     with pytest.raises(BytecodeFormatError, match="Invalid operand"):
         BytecodeSerializer.from_bytes(MAGIC + json.dumps(payload).encode())
+
+
+def test_rejects_duplicate_json_keys():
+    from rifai.bytecode.module import MAGIC
+
+    payload = (
+        b'{"magic":"RIFAI","magic":"RIFAI","format_version":1,'
+        b'"source_name":null,"constants":[],"main":{"name":"<main>",'
+        b'"arity":0,"local_count":0,"instructions":['
+        b'{"opcode":"HALT","operand":null,"location":null}]}}'
+    )
+    with pytest.raises(BytecodeFormatError, match="Duplicate JSON object key"):
+        BytecodeSerializer.from_bytes(MAGIC + payload)

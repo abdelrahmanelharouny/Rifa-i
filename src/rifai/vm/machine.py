@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import math
 
 from rifai.bytecode.instructions import Instruction, Opcode
 from rifai.bytecode.module import BytecodeModule
@@ -45,11 +46,20 @@ class VirtualMachine:
         if not validation.is_valid:
             raise BytecodeValidationError(validation.diagnostics)
 
+        globals_: dict[str, RuntimeValue] = {}
+        for name, value in (initial_globals or {}).items():
+            if not isinstance(name, str) or not name:
+                raise ValueError("Initial global names must be non-empty strings.")
+            if type(value) not in (int, float, bool, str):
+                raise ValueError(f"Initial global {name!r} has an unsupported value.")
+            if type(value) is float and not math.isfinite(value):
+                raise ValueError(f"Initial global {name!r} must be a finite float.")
+            globals_[name] = value
+
         stack: list[RuntimeValue] = []
         locals_: list[RuntimeValue | object] = [
             _UNINITIALIZED for _ in range(module.main.local_count)
         ]
-        globals_: dict[str, RuntimeValue] = dict(initial_globals or {})
         output: list[str] = []
         instructions = module.main.instructions
         ip = 0
@@ -69,6 +79,8 @@ class VirtualMachine:
             return stack.pop()
 
         def push(value: RuntimeValue, instruction: Instruction) -> None:
+            if type(value) is float and not math.isfinite(value):
+                raise fault("Floating-point result is not finite.", instruction)
             if len(stack) >= self.max_stack_depth:
                 raise fault(
                     f"Operand stack limit ({self.max_stack_depth}) exceeded.",
@@ -125,7 +137,13 @@ class VirtualMachine:
                 if type(value) is not bool:
                     raise fault("NOT requires a bool.", instruction)
                 push(not value, instruction)
-            elif opcode in (Opcode.ADD, Opcode.SUBTRACT, Opcode.MULTIPLY, Opcode.DIVIDE, Opcode.MODULO):
+            elif opcode in (
+                Opcode.ADD,
+                Opcode.SUBTRACT,
+                Opcode.MULTIPLY,
+                Opcode.DIVIDE,
+                Opcode.MODULO,
+            ):
                 right = pop(instruction)
                 left = pop(instruction)
                 if opcode is Opcode.ADD and type(left) is type(right) is str:
@@ -169,12 +187,16 @@ class VirtualMachine:
                         f"{opcode.value} requires operands of the same type.",
                         instruction,
                     )
-                if opcode in (Opcode.LESS, Opcode.LESS_EQUAL, Opcode.GREATER, Opcode.GREATER_EQUAL):
-                    if type(left) not in (int, float):
-                        raise fault(
-                            f"{opcode.value} requires numeric operands.",
-                            instruction,
-                        )
+                if opcode in (
+                    Opcode.LESS,
+                    Opcode.LESS_EQUAL,
+                    Opcode.GREATER,
+                    Opcode.GREATER_EQUAL,
+                ) and type(left) not in (int, float):
+                    raise fault(
+                        f"{opcode.value} requires numeric operands.",
+                        instruction,
+                    )
                 if opcode is Opcode.EQUAL:
                     value = left == right
                 elif opcode is Opcode.NOT_EQUAL:
@@ -192,8 +214,12 @@ class VirtualMachine:
                 right = pop(instruction)
                 left = pop(instruction)
                 if type(left) is not bool or type(right) is not bool:
-                    raise fault(f"{opcode.value} requires boolean operands.", instruction)
-                push((left and right) if opcode is Opcode.AND else (left or right), instruction)
+                    raise fault(
+                        f"{opcode.value} requires boolean operands.",
+                        instruction,
+                    )
+                value = (left and right) if opcode is Opcode.AND else (left or right)
+                push(value, instruction)
             elif opcode is Opcode.PRINT:
                 output.append(format_value(pop(instruction)))
             elif opcode is Opcode.JUMP:
@@ -206,7 +232,7 @@ class VirtualMachine:
                     next_ip = instruction.operand
             elif opcode is Opcode.HALT:
                 break
-            else:  # Defensive guard in case a future opcode reaches this VM.
+            else:
                 raise fault(f"Unsupported opcode {opcode!r}.", instruction)
 
             ip = next_ip

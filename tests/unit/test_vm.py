@@ -216,3 +216,50 @@ def test_stack_limit_is_enforced():
     )
     with pytest.raises(VMRuntimeError, match="Operand stack limit"):
         VirtualMachine(max_stack_depth=1).execute(module)
+
+
+import pytest
+
+from rifai.bytecode import BytecodeModule, CodeChunk, Instruction, Opcode
+from rifai.vm import VirtualMachine, VMRuntimeError
+
+
+def module_for(instructions, constants=()):
+    return BytecodeModule(
+        constants=tuple(constants),
+        main=CodeChunk("<main>", tuple(instructions)),
+    )
+
+
+def test_rejects_non_language_values_in_initial_globals():
+    module = module_for(
+        [
+            Instruction(Opcode.CONSTANT, 0),
+            Instruction(Opcode.PRINT),
+            Instruction(Opcode.HALT),
+        ],
+        constants=(1,),
+    )
+    with pytest.raises(ValueError, match="unsupported value"):
+        VirtualMachine().execute(module, initial_globals={"bad": object()})
+
+
+def test_rejects_non_finite_initial_float_globals():
+    module = module_for([Instruction(Opcode.HALT)])
+    with pytest.raises(ValueError, match="finite float"):
+        VirtualMachine().execute(module, initial_globals={"bad": float("inf")})
+
+
+def test_rejects_float_overflow_during_arithmetic():
+    module = module_for(
+        [
+            Instruction(Opcode.CONSTANT, 0),
+            Instruction(Opcode.CONSTANT, 1),
+            Instruction(Opcode.MULTIPLY),
+            Instruction(Opcode.PRINT),
+            Instruction(Opcode.HALT),
+        ],
+        constants=(1e308, 1e308),
+    )
+    with pytest.raises(VMRuntimeError, match="not finite"):
+        VirtualMachine().execute(module)

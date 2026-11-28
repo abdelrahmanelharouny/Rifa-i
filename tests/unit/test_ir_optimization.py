@@ -63,3 +63,24 @@ print(choose(count == 2));
     assert result.ir_analysis is not None
     assert any(item.loop_back_edges for item in result.ir_analysis.functions)
     assert VirtualMachine().execute(result.module).output == ("10",)
+
+
+
+def test_nested_constant_folding_removes_redundant_stack_materializations():
+    from rifai.bytecode import Opcode
+
+    source = """fn answer() -> int {
+    return (6 * 7) + 1;
+}
+print(answer());
+"""
+    result = Compiler(optimize=False, ir_optimize=True).compile(source)
+
+    assert result.is_success
+    assert result.module is not None
+    chunk = result.module.functions[0].chunk
+    assert [instruction.opcode for instruction in chunk.instructions] == [
+        Opcode.CONSTANT,
+        Opcode.RETURN,
+    ]
+    assert VirtualMachine().execute(result.module).output == ("43",)

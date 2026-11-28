@@ -446,8 +446,15 @@ class IRVerifier:
             parts = operation.operand.split("|", 2) if isinstance(operation.operand, str) else ()
             check_output(parts[0] if parts else None)
             payload_types = parts[2].split(",") if len(parts) == 3 and parts[2] else []
-            if tuple(payload_types) != tuple(input_types):
-                report(f"ENUM_NEW_PAYLOAD in block {block_id} has payload type mismatch.")
+            if len(payload_types) != len(input_types):
+                report(f"ENUM_NEW_PAYLOAD in block {block_id} has payload arity mismatch.")
+            else:
+                for expected, actual in zip(payload_types, input_types):
+                    if actual is not None and actual != expected:
+                        report(
+                            f"ENUM_NEW_PAYLOAD in block {block_id} expects payload type "
+                            f"{expected}, found {actual}."
+                        )
         elif opcode is Opcode.ENUM_IS:
             enum_name = operation.operand.split("|", 1)[0] if isinstance(operation.operand, str) else None
             check_input(0, enum_name)

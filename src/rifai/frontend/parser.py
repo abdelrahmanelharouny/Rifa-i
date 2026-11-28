@@ -334,10 +334,7 @@ class Parser:
             and self._peek(1).token_type is TokenType.ASSIGN
         ):
             return self._parse_assignment_statement()
-        if (
-            self._check(TokenType.IDENTIFIER)
-            and self._peek(1).token_type is TokenType.LEFT_BRACKET
-        ):
+        if self._check(TokenType.IDENTIFIER):
             return self._parse_index_or_expression_statement()
         return self._parse_expression_statement()
 

@@ -95,7 +95,7 @@ def is_value_type(rifai_type: StaticType) -> bool:
         RifaiType.FLOAT,
         RifaiType.BOOL,
         RifaiType.STRING,
-    ) or isinstance(rifai_type, UserDefinedType)
+    ) or (isinstance(rifai_type, UserDefinedType) and rifai_type.kind == "enum")
 
 
 def is_error_type(rifai_type: StaticType) -> bool:

@@ -205,3 +205,24 @@ def test_dataflow_merge_keeps_bool_and_int_constants_distinct():
     assert VirtualMachine().execute(
         optimized.module, initial_globals={"condition": False}
     ).output == ("1",)
+
+def test_global_cse_does_not_reuse_local_load_across_branch_write():
+    source = """fn calculate(flag: bool) -> int {
+    let value: int = 1;
+    let before: int = value;
+    if (flag) {
+        value = 2;
+    }
+    let after: int = value;
+    return before + after;
+}
+print(calculate(true));
+print(calculate(false));
+"""
+    optimized = Compiler(optimize=True).compile(source)
+    unoptimized = Compiler(optimize=False).compile(source)
+
+    assert optimized.is_success and unoptimized.is_success
+    assert VirtualMachine().execute(optimized.module).output == ("3", "2")
+    assert VirtualMachine().execute(unoptimized.module).output == ("3", "2")
+

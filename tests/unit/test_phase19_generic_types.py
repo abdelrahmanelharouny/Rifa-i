@@ -36,6 +36,18 @@ fn identity<T>(value: T) -> T {
     return value;
 }
 
+fn explicit_identity<T>(value: T) -> T {
+    return identity<T>(value);
+}
+
+fn explicit_box<T: Display>(value: T) -> Box<T> {
+    return Box<T>(value);
+}
+
+fn explicit_option<T: Display>(value: T) -> Option<T> {
+    return Option<T>.Some(value);
+}
+
 fn first<T: ArrayElement>(values: T[]) -> T {
     return values[0];
 }
@@ -61,6 +73,9 @@ fn equal<T: Equatable>(left: T, right: T) -> bool {
 
 let inferred_box = Box(42);
 let explicit_box: Box<string> = Box<string>("rifai");
+let nested_box: Box<string> = explicit_box("nested");
+let nested_option: Option<int> = explicit_option(12);
+let nested_identity: int = explicit_identity(11);
 let boxes: Box<int>[] = [Box<int>(1), Box(2)];
 let points: Point[] = [Point(3), Point(5)];
 let matrix: int[][] = [[1, 2], [3, 4]];
@@ -71,6 +86,9 @@ let none: Option<string> = Option<string>.None;
 
 print(to_string(inferred_box.value));
 print(explicit_box.value);
+print(nested_box.value);
+print(describe(nested_option));
+print(to_string(nested_identity));
 print(to_string(first(boxes).value));
 print(to_string(first(points).x));
 print(to_string(matrix_copy[0]));
@@ -98,6 +116,9 @@ def test_generic_structs_enums_bounds_explicit_arguments_and_recursive_arrays(op
     assert VirtualMachine().execute(compiled.module).output == (
         "42",
         "rifai",
+        "nested",
+        "12",
+        "11",
         "1",
         "3",
         "3",

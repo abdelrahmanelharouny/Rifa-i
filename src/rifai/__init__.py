@@ -84,7 +84,7 @@ from rifai.vm import (
     VMRuntimeError,
 )
 
-__version__ = "0.18.0"
+__version__ = "0.19.0"
 
 __all__ = [
     "BasicBlock",

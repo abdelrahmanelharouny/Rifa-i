@@ -42,13 +42,13 @@ Every generated instance is processed by the existing semantic analyzer, typed I
 - Generic structs and generic enums are not introduced.
 - Explicit type arguments at call sites are not required or supported; inference is from call arguments.
 - Type bounds/constraints and associated types are not introduced. Operators are checked after specialization, for every concrete type.
-- Empty array literals do not carry enough information to infer an element type.
-- Nested arrays and arrays whose element type is a user-defined nominal type remain unsupported by the language's current collection model.
-- A type variable must occur in at least one parameter annotation so its value can be inferred.
+- Empty array literals still require an explicit surrounding type context.
+- A generic type parameter must occur in at least one parameter annotation so calls can infer it when explicit type arguments are not supplied.
+- Type bounds in Phase 19 use a fixed built-in capability set; user-declared traits and implementations are not supported.
 
 ## Compatibility
 
-The generic pass emits ordinary function declarations before IR generation. Bytecode v6 and all existing older-format compatibility behavior remain unchanged; no VM or serializer changes are needed.
+The generic function pass introduced in Phase 18 emitted ordinary concrete function declarations before IR generation. Phase 19 supersedes its original boundaries by adding generic nominal declarations, explicit type arguments, built-in bounds, and recursive arrays. Generic type instances remain ordinary concrete nominal declarations. Recursive/nominal array construction is supported by bytecode v7; bytecode v1–v6 remain readable and executable.
 
 ## Validation
 

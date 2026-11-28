@@ -76,6 +76,7 @@ let typed_box: Box<string> = Box<string>("rifai");
 let nested_box: Box<string> = explicit_box("nested");
 let nested_option: Option<int> = explicit_option(12);
 let nested_identity: int = explicit_identity(11);
+let inferred_option = Option.Some(13);
 let boxes: Box<int>[] = [Box<int>(1), Box(2)];
 let points: Point[] = [Point(3), Point(5)];
 let matrix: int[][] = [[1, 2], [3, 4]];
@@ -89,6 +90,7 @@ print(typed_box.value);
 print(nested_box.value);
 print(describe(nested_option));
 print(to_string(nested_identity));
+print(describe(inferred_option));
 print(to_string(first(boxes).value));
 print(to_string(first(points).x));
 print(to_string(matrix_copy[0]));
@@ -119,6 +121,7 @@ def test_generic_structs_enums_bounds_explicit_arguments_and_recursive_arrays(op
         "nested",
         "12",
         "11",
+        "13",
         "1",
         "3",
         "3",
@@ -219,6 +222,11 @@ print(to_string(nested[1][0].value));
             "fn id<T>(value: T) -> T { return value; } "
             "let invalid = id<int, string>(1);",
             "expects 1 explicit type argument(s), got 2",
+        ),
+        (
+            "fn same<T: Equatable>(left: T, right: T) -> bool { return left == right; } "
+            "let values: int[] = [1]; let invalid = same(values, values);",
+            "does not satisfy constraint 'Equatable'",
         ),
     ],
 )

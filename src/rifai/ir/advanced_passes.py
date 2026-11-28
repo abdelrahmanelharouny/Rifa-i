@@ -288,6 +288,7 @@ class IRLoopInvariantCodeMotionPass:
                             predecessor
                             for predecessor in predecessors.get(node, ())
                             if predecessor != header
+                            and header in dominators.get(predecessor, set())
                         )
 
                 if not loops:
@@ -309,7 +310,7 @@ class IRLoopInvariantCodeMotionPass:
                         continue
                     preheader_id = outside[0]
                     preheader = by_id.get(preheader_id)
-                    if not isinstance(preheader.terminator, IRJump) or preheader.terminator.target != header:
+                    if preheader is None or not isinstance(preheader.terminator, IRJump) or preheader.terminator.target != header:
                         continue
 
                     local_writes = {

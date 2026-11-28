@@ -136,6 +136,322 @@ class GenericSpecializer:
             start_offset=span.start_offset, end_offset=span.end_offset,
         ))
 
+    _KNOWN_CONSTRAINTS = frozenset({
+        "Numeric", "Integral", "Addable", "Comparable", "Ordered",
+        "Equatable", "Display", "Printable", "ArrayElement", "Copy",
+    })
+
+    @staticmethod
+    def _split_top_level_types(text: str) -> tuple[str, ...]:
+        parts: list[str] = []
+        depth_angle = 0
+        depth_square = 0
+        start = 0
+        for index, character in enumerate(text):
+            if character == "<":
+                depth_angle += 1
+            elif character == ">":
+                depth_angle -= 1
+            elif character == "[":
+                depth_square += 1
+            elif character == "]":
+                depth_square -= 1
+            elif character == "," and depth_angle == 0 and depth_square == 0:
+                parts.append(text[start:index].strip())
+                start = index + 1
+        if start < len(text):
+            parts.append(text[start:].strip())
+        return tuple(item for item in parts if item)
+
+    @classmethod
+    def _parse_type_shape(cls, name: str) -> tuple[str, tuple[str, ...], int]:
+        """Return base name, generic arguments, and trailing array rank."""
+        rank = 0
+        base = name
+        while base.endswith("[]"):
+            base = base[:-2]
+            rank += 1
+        opening = base.find("<")
+        if opening < 0 or not base.endswith(">"):
+            return base, (), rank
+        root = base[:opening]
+        arguments_text = base[opening + 1:-1]
+        return root, cls._split_top_level_types(arguments_text), rank
+
+    def _validate_type_parameters(
+        self,
+        owner: str,
+        tokens: tuple[Token, ...],
+        bounds: tuple[tuple[str, ...], ...],
+    ) -> None:
+        seen: set[str] = set()
+        if bounds and len(bounds) != len(tokens):
+            self._error(
+                SourceSpan.from_token(tokens[0]) if tokens else SourceSpan(1, 1, 0, 0),
+                f"Generic declaration '{owner}' has malformed type-parameter constraints.",
+            )
+        for index, token in enumerate(tokens):
+            if token.lexeme in seen:
+                self._error(SourceSpan.from_token(token),
+                            f"Duplicate generic type parameter '{token.lexeme}' in '{owner}'.")
+            seen.add(token.lexeme)
+            if type_from_name(token.lexeme) is not None or token.lexeme in self._nominal_names:
+                self._error(SourceSpan.from_token(token),
+                            f"Generic type parameter '{token.lexeme}' shadows a declared type.")
+            constraints = bounds[index] if index < len(bounds) else ()
+            if len(set(constraints)) != len(constraints):
+                self._error(SourceSpan.from_token(token),
+                            f"Duplicate constraint on type parameter '{token.lexeme}'.")
+            for constraint in constraints:
+                if constraint not in self._KNOWN_CONSTRAINTS:
+                    self._error(SourceSpan.from_token(token),
+                                f"Unknown type constraint '{constraint}' on '{token.lexeme}'.")
+
+    def _validate_generic_type_declaration(
+        self, declaration: StructDeclaration | EnumDeclaration
+    ) -> None:
+        if declaration.name.startswith(_INTERNAL_PREFIX):
+            self._error(SourceSpan.from_token(declaration.name_token),
+                        f"Type names beginning with '{_INTERNAL_PREFIX}' are reserved.")
+        self._validate_type_parameters(
+            declaration.name, declaration.type_parameters, declaration.type_parameter_bounds
+        )
+
+    def _is_known_concrete_type(self, name: str) -> bool:
+        base, arguments, rank = self._parse_type_shape(name)
+        if rank:
+            return self._is_known_concrete_type(base + (("<" + ",".join(arguments) + ">") if arguments else ""))
+        if arguments:
+            return base in self._generic_structs or base in self._generic_enums
+        return (
+            type_from_name(base) is not None
+            or base in self._nominal_names
+            or base in self._specialized_type_names
+        )
+
+    def _satisfies_constraint(self, type_name: str, constraint: str) -> bool:
+        """Evaluate a built-in static capability against one concrete type."""
+        base, arguments, rank = self._parse_type_shape(type_name)
+        if rank:
+            if constraint in {"Display", "Printable", "ArrayElement"}:
+                return True
+            if constraint == "Equatable":
+                return True
+            return False
+        is_enum = base in self._enum_type_names or (
+            base in self._type_descriptors and self._type_descriptors[base][2] == "enum"
+        )
+        is_struct = base in self._structs or (
+            base in self._type_descriptors and self._type_descriptors[base][2] == "struct"
+        )
+        if constraint == "Numeric":
+            return type_name in {"int", "float"}
+        if constraint == "Integral":
+            return type_name == "int"
+        if constraint == "Addable":
+            return type_name in {"int", "float", "string"}
+        if constraint in {"Comparable", "Ordered"}:
+            return type_name in {"int", "float", "string"}
+        if constraint == "Equatable":
+            return type_name in {"int", "float", "bool", "string"} or is_enum
+        if constraint in {"Display", "Printable"}:
+            return type_name != "void" and self._is_known_concrete_type(type_name)
+        if constraint == "ArrayElement":
+            return type_name != "void" and self._is_known_concrete_type(type_name)
+        if constraint == "Copy":
+            return type_name in {"int", "float", "bool", "string"} or is_enum
+        return False
+
+    def _check_type_arguments(
+        self,
+        owner: str,
+        tokens: tuple[Token, ...],
+        bounds: tuple[tuple[str, ...], ...],
+        arguments: tuple[str, ...],
+        span: SourceSpan,
+    ) -> bool:
+        valid = True
+        if len(arguments) != len(tokens):
+            self._error(
+                span,
+                f"Generic type '{owner}' expects {len(tokens)} type argument(s), got {len(arguments)}.",
+            )
+            return False
+        for index, argument in enumerate(arguments):
+            if not self._is_known_concrete_type(argument) or argument == "void":
+                self._error(span,
+                            f"'{argument}' is not a valid concrete type argument for '{owner}'.")
+                valid = False
+                continue
+            constraints = bounds[index] if index < len(bounds) else ()
+            for constraint in constraints:
+                if not self._satisfies_constraint(argument, constraint):
+                    self._error(
+                        span,
+                        f"Type '{argument}' does not satisfy constraint '{constraint}' "
+                        f"for parameter '{tokens[index].lexeme}' in '{owner}'.",
+                    )
+                    valid = False
+        return valid
+
+    def _specialize_type_name(
+        self,
+        name: str,
+        span: SourceSpan,
+        substitutions: dict[str, str],
+    ) -> str:
+        """Resolve type variables and create concrete nominal generic instances."""
+        base, arguments, rank = self._parse_type_shape(name)
+        if not base:
+            return name
+        if base in substitutions and not arguments:
+            return substitutions[base] + "[]" * rank
+
+        if arguments:
+            concrete_arguments = tuple(
+                self._specialize_type_name(item, span, substitutions)
+                for item in arguments
+            )
+            if base in self._generic_structs or base in self._generic_enums:
+                specialized = self._instantiate_generic_nominal(base, concrete_arguments, span)
+                return (specialized or base) + "[]" * rank
+            self._error(span, f"Type '{base}' is not a generic type and cannot accept type arguments.")
+            return name
+
+        if base in self._generic_structs or base in self._generic_enums:
+            self._error(span,
+                        f"Generic type '{base}' requires {len((self._generic_structs.get(base) or self._generic_enums[base]).type_parameters)} explicit type argument(s).")
+            return name
+        return base + "[]" * rank
+
+    def _specialize_annotation(
+        self,
+        annotation: TypeAnnotation | None,
+        substitutions: dict[str, str],
+    ) -> TypeAnnotation | None:
+        if annotation is None:
+            return None
+        specialized = self._specialize_type_name(annotation.name, annotation.span, substitutions)
+        return replace(annotation, name=specialized) if specialized != annotation.name else annotation
+
+    def _instantiate_generic_nominal(
+        self,
+        owner: str,
+        arguments: tuple[str, ...],
+        span: SourceSpan,
+    ) -> str | None:
+        template: StructDeclaration | EnumDeclaration | None = (
+            self._generic_structs.get(owner) or self._generic_enums.get(owner)
+        )
+        if template is None:
+            return None
+        if not self._check_type_arguments(
+            owner,
+            template.type_parameters,
+            template.type_parameter_bounds,
+            arguments,
+            span,
+        ):
+            return None
+        key = (owner, arguments)
+        cached = self._specialized_type_cache.get(key)
+        if cached is not None:
+            return cached
+
+        digest = sha256("\0".join((owner, *arguments)).encode("utf-8")).hexdigest()[:10]
+        generated_name = f"{_INTERNAL_PREFIX}type_{owner}_{digest}"
+        if generated_name in self._reserved_names:
+            self._error(span, f"Generated type name '{generated_name}' conflicts with a user declaration.")
+            return None
+
+        self._specialized_type_cache[key] = generated_name
+        self._specialized_type_positions[key] = len(self._specialized_type_list)
+        substitutions = {
+            token.lexeme: argument
+            for token, argument in zip(template.type_parameters, arguments)
+        }
+        self._type_descriptors[generated_name] = (
+            owner, arguments, "struct" if isinstance(template, StructDeclaration) else "enum"
+        )
+        self._specialized_type_names.add(generated_name)
+
+        generated_token = replace(template.name_token, lexeme=generated_name)
+        if isinstance(template, StructDeclaration):
+            placeholder: Statement = replace(
+                template,
+                name=generated_name,
+                name_token=generated_token,
+                fields=(),
+                type_parameters=(),
+                type_parameter_bounds=(),
+            )
+        else:
+            placeholder = replace(
+                template,
+                name=generated_name,
+                name_token=generated_token,
+                variants=(),
+                type_parameters=(),
+                type_parameter_bounds=(),
+            )
+        self._specialized_type_list.append(placeholder)
+
+        if isinstance(template, StructDeclaration):
+            fields = tuple(
+                replace(
+                    field,
+                    type_annotation=self._specialize_annotation(field.type_annotation, substitutions),
+                )
+                for field in deepcopy(template.fields)
+            )
+            specialized_decl = replace(placeholder, fields=fields)
+            self._structs[generated_name] = specialized_decl
+        else:
+            variants = tuple(
+                replace(
+                    variant,
+                    payload_types=tuple(
+                        self._specialize_annotation(annotation, substitutions)
+                        for annotation in variant.payload_types
+                    ),
+                )
+                for variant in deepcopy(template.variants)
+            )
+            specialized_decl = replace(placeholder, variants=variants)
+            self._enums[generated_name] = specialized_decl
+            self._enum_type_names.add(generated_name)
+
+        self._specialized_type_list[self._specialized_type_positions[key]] = specialized_decl
+        return generated_name
+
+    def _rewrite_struct_declaration(
+        self, declaration: StructDeclaration, substitutions: dict[str, str]
+    ) -> StructDeclaration:
+        return replace(
+            declaration,
+            fields=tuple(
+                replace(field, type_annotation=self._specialize_annotation(field.type_annotation, substitutions))
+                for field in declaration.fields
+            ),
+        )
+
+    def _rewrite_enum_declaration(
+        self, declaration: EnumDeclaration, substitutions: dict[str, str]
+    ) -> EnumDeclaration:
+        return replace(
+            declaration,
+            variants=tuple(
+                replace(
+                    variant,
+                    payload_types=tuple(
+                        self._specialize_annotation(annotation, substitutions)
+                        for annotation in variant.payload_types
+                    ),
+                )
+                for variant in declaration.variants
+            ),
+        )
+
     def _validate_generic_declaration(self, function: FunctionDeclaration) -> None:
         if function.name.startswith(_INTERNAL_PREFIX):
             self._error(SourceSpan.from_token(function.name_token),

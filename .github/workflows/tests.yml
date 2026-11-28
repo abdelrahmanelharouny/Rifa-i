@@ -115,6 +115,14 @@ jobs:
           rifai inspect examples/phase17_algebraic_data_types.rif --output /tmp/rifai-phase17.json
           python -c "import json; p=json.load(open('/tmp/rifai-phase17.json', encoding='utf-8')); assert p['success'] and p['stages']['ir']['origin'] == 'direct-ast' and p['stages']['bytecode']['format_version'] == 6"
 
+      - name: Validate Phase 18 generic functions
+        run: |
+          rifai check examples/phase18_generics.rif
+          rifai run examples/phase18_generics.rif > /tmp/rifai-phase18.txt
+          python -c "from pathlib import Path; assert Path('/tmp/rifai-phase18.txt').read_text(encoding='utf-8').strip().splitlines() == ['42', \"Rifa'i generics\", '10', '7', 'some=9', '10']"
+          rifai inspect examples/phase18_generics.rif --output /tmp/rifai-phase18.json
+          python -c "import json; p=json.load(open('/tmp/rifai-phase18.json', encoding='utf-8')); assert p['success'] and p['stages']['ir']['origin'] == 'direct-ast' and p['stages']['bytecode']['format_version'] == 6 and p['stages']['ir']['stats']['functions'] >= 5"
+
       - name: Verify interactive debugger smoke test
         run: |
           printf '%s\n' continue continue | rifai debug examples/phase7_debugger.rif --breakpoint 4 > /tmp/rifai-debug.txt

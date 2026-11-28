@@ -25,6 +25,10 @@ from rifai.frontend.ast_nodes import (
     StructDeclaration,
     StructField,
     EnumDeclaration,
+    EnumVariant,
+    EnumConstructorExpression,
+    MatchArm,
+    MatchExpression,
     IfStatement,
     LiteralExpression,
     PrintStatement,
@@ -88,6 +92,9 @@ class SemanticResult:
     constructor_bindings: dict[int, StructDeclaration]
     member_bindings: dict[int, StructField]
     enum_variant_bindings: dict[int, tuple[str, str]]
+    enum_constructor_bindings: dict[int, tuple[EnumDeclaration, EnumVariant]]
+    match_variant_bindings: dict[int, EnumVariant]
+    pattern_bindings: dict[int, tuple[VariableSymbol, ...]]
 
     @property
     def is_valid(self) -> bool:
@@ -128,6 +135,9 @@ class SemanticAnalyzer:
         self._constructor_bindings: dict[int, StructDeclaration] = {}
         self._member_bindings: dict[int, StructField] = {}
         self._enum_variant_bindings: dict[int, tuple[str, str]] = {}
+        self._enum_constructor_bindings: dict[int, tuple[EnumDeclaration, EnumVariant]] = {}
+        self._match_variant_bindings: dict[int, EnumVariant] = {}
+        self._pattern_bindings: dict[int, tuple[VariableSymbol, ...]] = {}
         self._loop_depth = 0
 
     def analyze(self, program: Program) -> SemanticResult:
@@ -144,6 +154,9 @@ class SemanticAnalyzer:
         self._constructor_bindings = {}
         self._member_bindings = {}
         self._enum_variant_bindings = {}
+        self._enum_constructor_bindings = {}
+        self._match_variant_bindings = {}
+        self._pattern_bindings = {}
         self._loop_depth = 0
 
         self._collect_type_declarations(program)
@@ -153,6 +166,13 @@ class SemanticAnalyzer:
                 if field_type is None or field_type is RifaiType.VOID:
                     self._error(field.type_annotation.span,
                                 f"Unknown or invalid field type '{field.type_annotation.name}'.")
+        for enum in self._enum_declarations.values():
+            for variant in enum.variants:
+                for payload_type in variant.payload_types:
+                    resolved = self._resolve_type(payload_type.name)
+                    if resolved is None or resolved is RifaiType.VOID:
+                        self._error(payload_type.span,
+                                    f"Unknown or invalid payload type '{payload_type.name}'.")
         self._collect_function_signatures(program)
 
         for decl in program.declarations:
@@ -174,6 +194,9 @@ class SemanticAnalyzer:
             constructor_bindings=dict(self._constructor_bindings),
             member_bindings=dict(self._member_bindings),
             enum_variant_bindings=dict(self._enum_variant_bindings),
+            enum_constructor_bindings=dict(self._enum_constructor_bindings),
+            match_variant_bindings=dict(self._match_variant_bindings),
+            pattern_bindings=dict(self._pattern_bindings),
         )
 
     def _error(self, span: SourceSpan, message: str) -> None:
@@ -216,10 +239,10 @@ class SemanticAnalyzer:
                     continue
                 seen_variants: set[str] = set()
                 for variant in declaration.variants:
-                    if variant.lexeme in seen_variants:
-                        self._error(SourceSpan.from_token(variant),
-                                    f"Duplicate variant '{variant.lexeme}' in enum '{name}'.")
-                    seen_variants.add(variant.lexeme)
+                    if variant.name in seen_variants:
+                        self._error(SourceSpan.from_token(variant.name_token),
+                                    f"Duplicate variant '{variant.name}' in enum '{name}'.")
+                    seen_variants.add(variant.name)
                 if not declaration.variants:
                     self._error(declaration.span, f"Enum '{name}' must declare at least one variant.")
                 self._enum_declarations[name] = declaration
@@ -689,9 +712,14 @@ class SemanticAnalyzer:
                 and expr.object.name in self._enum_declarations
             ):
                 declaration = self._enum_declarations[expr.object.name]
-                if not any(item.lexeme == expr.name for item in declaration.variants):
+                variant = next((item for item in declaration.variants if item.name == expr.name), None)
+                if variant is None:
                     self._error(SourceSpan.from_token(expr.name_token),
                                 f"Enum '{declaration.name}' has no variant '{expr.name}'.")
+                    result_type = RifaiType.ERROR
+                elif variant.payload_types:
+                    self._error(SourceSpan.from_token(expr.name_token),
+                                f"Enum variant '{declaration.name}.{expr.name}' requires {len(variant.payload_types)} payload value(s).")
                     result_type = RifaiType.ERROR
                 else:
                     self._enum_variant_bindings[id(expr)] = (declaration.name, expr.name)
@@ -700,6 +728,10 @@ class SemanticAnalyzer:
                 result_type = self._member_type(
                     expr.object, expr.name, expr.name_token, id(expr)
                 )
+        elif isinstance(expr, EnumConstructorExpression):
+            result_type = self._analyze_enum_constructor(expr)
+        elif isinstance(expr, MatchExpression):
+            result_type = self._analyze_match_expression(expr)
         elif isinstance(expr, UnaryExpression):
             result_type = self._analyze_unary(expr)
         elif isinstance(expr, BinaryExpression):
@@ -711,6 +743,116 @@ class SemanticAnalyzer:
 
         self._expression_types[id(expr)] = result_type
         return result_type
+
+    def _analyze_enum_constructor(self, expr: EnumConstructorExpression) -> StaticType:
+        declaration = self._enum_declarations.get(expr.enum_name)
+        if declaration is None:
+            self._error(SourceSpan.from_token(expr.enum_token), f"Unknown enum '{expr.enum_name}'.")
+            for argument in expr.arguments:
+                self._analyze_expression(argument)
+            return RifaiType.ERROR
+        variant = next((item for item in declaration.variants if item.name == expr.variant_name), None)
+        if variant is None:
+            self._error(SourceSpan.from_token(expr.variant_token),
+                        f"Enum '{expr.enum_name}' has no variant '{expr.variant_name}'.")
+            for argument in expr.arguments:
+                self._analyze_expression(argument)
+            return RifaiType.ERROR
+        if len(expr.arguments) != len(variant.payload_types):
+            self._error(expr.span,
+                        f"Enum variant '{expr.enum_name}.{expr.variant_name}' expects {len(variant.payload_types)} payload value(s), got {len(expr.arguments)}.")
+        for index, argument in enumerate(expr.arguments):
+            actual = self._analyze_expression(argument)
+            if index < len(variant.payload_types):
+                expected = self._resolve_type(variant.payload_types[index].name)
+                if expected is not None and not is_error_type(actual) and actual != expected:
+                    self._error(argument.span,
+                                f"Payload {index + 1} of '{expr.enum_name}.{expr.variant_name}' expects '{expected.value}', got '{actual.value}'.")
+        self._enum_constructor_bindings[id(expr)] = (declaration, variant)
+        return self._nominal_types[declaration.name]
+
+    def _analyze_match_expression(self, expr: MatchExpression) -> StaticType:
+        subject_type = self._analyze_expression(expr.subject)
+        if not isinstance(subject_type, UserDefinedType) or subject_type.kind != "enum":
+            self._error(expr.subject.span,
+                        f"'match' requires an enum value, got '{subject_type.value}'.")
+            for arm in expr.arms:
+                self._analyze_expression(arm.body)
+            return RifaiType.ERROR
+
+        declaration = self._enum_declarations.get(subject_type.name)
+        if declaration is None:
+            self._error(expr.subject.span, f"Unknown enum type '{subject_type.name}'.")
+            return RifaiType.ERROR
+
+        seen_variants: set[str] = set()
+        wildcard_seen = False
+        result_type: StaticType | None = None
+        for arm_index, arm in enumerate(expr.arms):
+            if wildcard_seen:
+                self._error(arm.span, "A wildcard match arm must be the final arm.")
+            self._symbol_table.enter_scope("match-arm")
+            try:
+                if arm.wildcard:
+                    if wildcard_seen:
+                        self._error(arm.span, "A match expression can contain only one wildcard arm.")
+                    wildcard_seen = True
+                    if arm.bindings:
+                        self._error(arm.span, "A wildcard pattern cannot bind enum payload values.")
+                else:
+                    if arm.enum_name != declaration.name:
+                        self._error(
+                            arm.enum_token and SourceSpan.from_token(arm.enum_token) or arm.span,
+                            f"Pattern enum '{arm.enum_name}' does not match subject enum '{declaration.name}'.",
+                        )
+                    variant = next((item for item in declaration.variants if item.name == arm.variant_name), None)
+                    if variant is None:
+                        self._error(arm.variant_token and SourceSpan.from_token(arm.variant_token) or arm.span,
+                                    f"Enum '{declaration.name}' has no variant '{arm.variant_name}'.")
+                    else:
+                        if variant.name in seen_variants:
+                            self._error(arm.span, f"Duplicate match arm for '{declaration.name}.{variant.name}'.")
+                        seen_variants.add(variant.name)
+                        self._match_variant_bindings[id(arm)] = variant
+                        if len(arm.bindings) != len(variant.payload_types):
+                            self._error(arm.span,
+                                f"Pattern '{declaration.name}.{variant.name}' expects {len(variant.payload_types)} binding(s), got {len(arm.bindings)}.")
+                        symbols: list[VariableSymbol] = []
+                        for index, token in enumerate(arm.bindings):
+                            if index >= len(variant.payload_types):
+                                break
+                            payload_type = self._resolve_type(variant.payload_types[index].name) or RifaiType.ERROR
+                            symbol = VariableSymbol(
+                                name=token.lexeme,
+                                rifai_type=payload_type,
+                                declaration_span=SourceSpan.from_token(token),
+                                is_parameter=False,
+                                is_global=False,
+                                scope_depth=self._symbol_table.current_scope.depth,
+                            )
+                            if not self._symbol_table.define_variable(symbol):
+                                self._error(SourceSpan.from_token(token),
+                                            f"Duplicate payload binding '{token.lexeme}' in match arm.")
+                            else:
+                                symbols.append(symbol)
+                        self._pattern_bindings[id(arm)] = tuple(symbols)
+                body_type = self._analyze_expression(arm.body)
+            finally:
+                self._symbol_table.exit_scope()
+            if body_type is RifaiType.VOID:
+                self._error(arm.body.span, "A match arm must produce a non-void value.")
+            if result_type is None:
+                result_type = body_type
+            elif not is_error_type(body_type) and body_type != result_type:
+                self._error(arm.body.span,
+                            f"Match arm type mismatch: expected '{result_type.value}', got '{body_type.value}'.")
+
+        all_variants = {item.name for item in declaration.variants}
+        missing = sorted(all_variants - seen_variants)
+        if missing and not wildcard_seen:
+            self._error(expr.span,
+                        "Non-exhaustive match; missing variant(s): " + ", ".join(missing) + ".")
+        return result_type or RifaiType.ERROR
 
     def _analyze_array_literal(
         self,

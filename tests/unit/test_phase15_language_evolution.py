@@ -279,20 +279,20 @@ print(point.x + point.y);
     assert restored == result.module
     assert VirtualMachine().execute(restored).output == ("7",)
 
+    from rifai.bytecode import CodeChunk, Instruction, Opcode
+
     legacy_v4 = BytecodeModule(
         constants=(),
-        main=result.module.main.__class__(
+        main=CodeChunk(
             name="<main>",
-            instructions=(
-                result.module.main.instructions[-1].__class__(
-                    opcode=result.module.main.instructions[-1].opcode
-                ),
-            ),
+            instructions=(Instruction(Opcode.HALT),),
         ),
         format_version=COLLECTIONS_FORMAT_VERSION,
     )
     encoded = BytecodeSerializer.to_bytes(legacy_v4)
-    assert BytecodeSerializer.from_bytes(encoded).format_version == 4
+    restored_v4 = BytecodeSerializer.from_bytes(encoded)
+    assert restored_v4.format_version == 4
+    assert VirtualMachine().execute(restored_v4).output == ()
 
 
 def test_compiler_rejects_nominal_opcodes_in_legacy_bytecode_versions():

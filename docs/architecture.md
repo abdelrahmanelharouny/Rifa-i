@@ -121,7 +121,7 @@ The pass manager runs deterministic verified passes to a bounded fixed point:
 6. Conservative DCE that retains effectful and potentially trapping operations.
 7. Canonical value numbering, final verification, CFG/dominator analysis, and side-effect statistics.
 
-Global CSE and LICM may create a value that is reused across several blocks. IRToBytecode detects these cases and materializes virtual values in private local slots; CFG edge arguments are transferred through scratch slots to preserve parallel-copy semantics. Straight-line, single-use IR continues to use the compact stack lowering. The bytecode verifier validates the final code, and output remains the existing v4 format.
+Global CSE and LICM may create a value that is reused across several blocks. IRToBytecode detects these cases and materializes virtual values in private local slots; CFG edge arguments are transferred through scratch slots to preserve parallel-copy semantics. Straight-line, single-use IR continues to use the compact stack lowering. The bytecode verifier validates the final code. Phase 14 output used v4; Phase 15 advances the direct source pipeline to v5 for nominal-type operations while retaining v1–v4 compatibility.
 
 The target-specific BytecodeOptimizer remains after lowering. Compiler(optimize=False) disables both optimization layers while retaining verification and analysis; ir_optimize can isolate the IR pass manager. CompilationResult exposes ir_origin, ir_module, ir_stats, and ir_analysis; rifai inspect exports the same information under its IR stages.
 
@@ -134,6 +134,18 @@ Diagnostics identify the phase that emitted them and preserve source line/column
 - run source.rif [--no-optimize] compiles in memory and executes immediately.
 - run program.rbc and vm program.rbc execute an existing bytecode module.
 - disasm program.rbc validates and displays bytecode.
+
+## 12. Phase 15: Modules, Nominal Types, and Runtime Capabilities
+
+The parser recognizes top-level relative imports, struct declarations, and unit enums. Semantic analysis performs a type-declaration pre-pass before function signature collection, allowing nominal declarations to be referenced from fields, function parameters, return types, constructors, and other imported modules. Local declarations may omit annotations when an initializer determines an exact type.
+
+The compiler resolves imports recursively relative to each importing file and confines every resolved path to the root source directory. Canonical files are visited once; cycles, parent traversal, absolute paths, symlink escapes, missing files, oversized module graphs, and duplicate declarations are rejected. Imported declarations are flattened in dependency-first order into a shared namespace, with token/span offsets remapped into the embedded combined source used by diagnostics and debugging.
+
+Structs lower to STRUCT_NEW, FIELD_GET, and FIELD_SET operations. Struct construction embeds an ordered field schema; the VM stores values in a reference-type StructValue, validates each field assignment against the schema, and traps reads of uninitialized fields. Enums lower to ENUM_NEW, embedding the declared variant list in the instruction; the verifier and VM reject undeclared active variants. Structs are mutable reference values; enums are immutable unit values.
+
+The intrinsic library adds checked numeric, conversion, and string operations. File functions are implemented in the VM but are not automatically available to embedded hosts: the default VM disables file I/O. A host may explicitly grant a file_root capability, and the CLI, interactive debugger, and DAP launch grant only the launched project's directory. Paths are resolved under that root; traversal and symlink escapes are rejected. Reads/writes are bounded UTF-8 text operations, and writes use atomic replacement.
+
+Bytecode v5 adds the nominal type instruction contracts and allows nominal names in function and debugger metadata. Serializer/verifier/VM support for versions 1–4 is retained. The direct AST compiler emits v5; compatibility APIs continue to lift and lower previously verified bytecode modules.
 
 ## 11. Project Phases
 
@@ -148,3 +160,5 @@ Diagnostics identify the phase that emitted them and preserve source line/column
 - Phase 12: IR-native scalar constant propagation/folding, constant-branch simplification, unreachable-block elimination, and bounded fixed-point optimization.
 - Phase 13: Direct semantic-AST-to-IR lowering for main/functions, explicit source-level control flow, debug metadata preservation, and direct IR-driven source compilation.
 - Phase 14: Dominance-aware global CSE, copy propagation, conservative dead-code elimination, natural-loop LICM, explicit side-effect/trap analysis, dominance verification, and materialized-value bytecode lowering.
+
+- Phase 15: Relative source imports, nominal structs/enums, inferred local types, standard library expansion, capability-based text I/O, and bytecode v5 with v1–v4 compatibility.

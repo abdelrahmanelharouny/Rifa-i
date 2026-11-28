@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from rifai.bytecode.instructions import Opcode, SourceLocation
-from rifai.bytecode.module import BytecodeDebugInfo, BytecodeDebugLocal
+from rifai.bytecode.module import BytecodeDebugInfo, BytecodeDebugLocal, FORMAT_VERSION
 from rifai.frontend.ast_nodes import (
     ASTNode,
     ArrayLiteralExpression,
@@ -209,8 +209,9 @@ class ASTToIR:
             main=main,
             functions=tuple(functions),
             source_name=source_name,
-            format_version=4,
+            format_version=FORMAT_VERSION,
             debug_info=debug_info,
+            requires_materialized_values=True,
         )
 
     def _reset_function(self, name: str, roots, parameters, semantic: SemanticResult) -> None:

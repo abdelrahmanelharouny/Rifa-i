@@ -146,6 +146,12 @@ class SemanticAnalyzer:
         self._enum_variant_bindings = {}
 
         self._collect_type_declarations(program)
+        for struct in self._struct_declarations.values():
+            for field in struct.fields:
+                field_type = self._resolve_type(field.type_annotation.name)
+                if field_type is None or field_type is RifaiType.VOID:
+                    self._error(field.type_annotation.span,
+                                f"Unknown or invalid field type '{field.type_annotation.name}'.")
         self._collect_function_signatures(program)
 
         for decl in program.declarations:
@@ -225,7 +231,7 @@ class SemanticAnalyzer:
             if not isinstance(decl, FunctionDeclaration):
                 continue
 
-            return_type = type_from_name(decl.return_type.name)
+            return_type = self._resolve_type(decl.return_type.name)
             if return_type is None:
                 self._error(
                     decl.return_type.span,
@@ -241,7 +247,7 @@ class SemanticAnalyzer:
                         SourceSpan.from_token(param.name_token),
                         f"'{param.name}' is a reserved standard-library function name.",
                     )
-                param_type = type_from_name(param.type_annotation.name)
+                param_type = self._resolve_type(param.type_annotation.name)
                 if param_type is None:
                     self._error(
                         param.type_annotation.span,
@@ -336,6 +342,8 @@ class SemanticAnalyzer:
             self._analyze_assignment(stmt)
         elif isinstance(stmt, IndexAssignmentStatement):
             self._analyze_index_assignment(stmt)
+        elif isinstance(stmt, MemberAssignmentStatement):
+            self._analyze_member_assignment(stmt)
         elif isinstance(stmt, BlockStatement):
             self._analyze_block(stmt)
         elif isinstance(stmt, IfStatement):
@@ -352,8 +360,12 @@ class SemanticAnalyzer:
             self._error(stmt.span, "Nested function declarations are not allowed.")
 
     def _analyze_variable_declaration(self, stmt: VariableDeclaration) -> None:
-        declared_type = type_from_name(stmt.type_annotation.name)
-        if declared_type is None:
+        declared_type = (
+            self._resolve_type(stmt.type_annotation.name)
+            if stmt.type_annotation is not None
+            else None
+        )
+        if stmt.type_annotation is not None and declared_type is None:
             self._error(
                 stmt.type_annotation.span,
                 f"Unknown type '{stmt.type_annotation.name}'.",
@@ -374,12 +386,14 @@ class SemanticAnalyzer:
 
         init_type = self._analyze_expression(
             stmt.initializer,
-            expected_type=declared_type if is_array_type(declared_type) else None,
+            expected_type=declared_type if declared_type is not None and is_array_type(declared_type) else None,
         )
+        if declared_type is None:
+            declared_type = init_type
         if (
             not is_error_type(declared_type)
             and not is_error_type(init_type)
-            and init_type is not declared_type
+            and init_type != declared_type
         ):
             self._error(
                 stmt.initializer.span,
@@ -435,7 +449,7 @@ class SemanticAnalyzer:
         if (
             not is_error_type(symbol.rifai_type)
             and not is_error_type(value_type)
-            and value_type is not symbol.rifai_type
+            and value_type != symbol.rifai_type
         ):
             self._error(
                 stmt.value.span,
@@ -464,12 +478,41 @@ class SemanticAnalyzer:
         if (
             element_type is not None
             and not is_error_type(value_type)
-            and value_type is not element_type
+            and value_type != element_type
         ):
             self._error(
                 stmt.value.span,
                 f"Array element expects '{element_type.value}', got '{value_type.value}'.",
             )
+
+    def _analyze_member_assignment(self, stmt: MemberAssignmentStatement) -> None:
+        member_type = self._member_type(stmt.object, stmt.name, stmt.name_token, id(stmt))
+        value_type = self._analyze_expression(stmt.value)
+        if not is_error_type(member_type) and not is_error_type(value_type) and member_type != value_type:
+            self._error(stmt.value.span,
+                        f"Field '{stmt.name}' expects '{member_type.value}', got '{value_type.value}'.")
+
+    def _member_type(
+        self,
+        object_expression: Expression,
+        member_name: str,
+        member_token,
+        binding_key: int,
+    ) -> StaticType:
+        object_type = self._analyze_expression(object_expression)
+        if isinstance(object_type, UserDefinedType) and object_type.kind == "struct":
+            declaration = self._struct_declarations.get(object_type.name)
+            field = next((item for item in declaration.fields if item.name == member_name), None) if declaration else None
+            if field is None:
+                self._error(SourceSpan.from_token(member_token),
+                            f"Struct '{object_type.name}' has no field '{member_name}'.")
+                return RifaiType.ERROR
+            self._member_bindings[binding_key] = field
+            result = self._resolve_type(field.type_annotation.name)
+            return result or RifaiType.ERROR
+        self._error(SourceSpan.from_token(member_token),
+                    f"Field access requires a struct value, got '{object_type.value}'.")
+        return RifaiType.ERROR
 
     def _analyze_block(self, block: BlockStatement) -> None:
         self._symbol_table.enter_scope("block")
@@ -536,7 +579,7 @@ class SemanticAnalyzer:
         if (
             not is_error_type(expected)
             and not is_error_type(actual)
-            and actual is not expected
+            and actual != expected
         ):
             self._error(
                 stmt.value.span,
@@ -557,7 +600,7 @@ class SemanticAnalyzer:
         self,
         expr: Expression,
         *,
-        expected_type: RifaiType | None = None,
+        expected_type: StaticType | None = None,
     ) -> RifaiType:
         result_type: RifaiType
 
@@ -587,6 +630,23 @@ class SemanticAnalyzer:
                     f"Array index must have type 'int', got '{index_type.value}'.",
                 )
             result_type = element_type or RifaiType.ERROR
+        elif isinstance(expr, MemberExpression):
+            if (
+                isinstance(expr.object, VariableExpression)
+                and expr.object.name in self._enum_declarations
+            ):
+                declaration = self._enum_declarations[expr.object.name]
+                if not any(item.lexeme == expr.name for item in declaration.variants):
+                    self._error(SourceSpan.from_token(expr.name_token),
+                                f"Enum '{declaration.name}' has no variant '{expr.name}'.")
+                    result_type = RifaiType.ERROR
+                else:
+                    self._enum_variant_bindings[id(expr)] = (declaration.name, expr.name)
+                    result_type = self._nominal_types[declaration.name]
+            else:
+                result_type = self._member_type(
+                    expr.object, expr.name, expr.name_token, id(expr)
+                )
         elif isinstance(expr, UnaryExpression):
             result_type = self._analyze_unary(expr)
         elif isinstance(expr, BinaryExpression):
@@ -602,7 +662,7 @@ class SemanticAnalyzer:
     def _analyze_array_literal(
         self,
         expr: ArrayLiteralExpression,
-        expected_type: RifaiType | None,
+        expected_type: StaticType | None,
     ) -> RifaiType:
         if not expr.elements:
             if expected_type is not None and is_array_type(expected_type):
@@ -634,7 +694,7 @@ class SemanticAnalyzer:
             if (
                 expected_element is not None
                 and not is_error_type(actual_type)
-                and actual_type is not expected_element
+                and actual_type != expected_element
             ):
                 self._error(
                     item.span,
@@ -877,7 +937,7 @@ class SemanticAnalyzer:
                 expected is not None
                 and not is_error_type(arg_type)
                 and not is_error_type(expected)
-                and arg_type is not expected
+                and arg_type != expected
             ):
                 self._error(
                     arg_node.span,

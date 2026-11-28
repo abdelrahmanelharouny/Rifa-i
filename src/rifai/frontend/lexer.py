@@ -21,6 +21,7 @@ _SINGLE_CHAR_TOKENS: Final[dict[str, TokenType]] = {
     ":": TokenType.COLON,
     ";": TokenType.SEMICOLON,
     ",": TokenType.COMMA,
+    ".": TokenType.DOT,
 }
 
 _TWO_CHAR_OPERATORS: Final[dict[str, tuple[str, TokenType, TokenType]]] = {

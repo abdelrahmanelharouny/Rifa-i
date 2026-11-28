@@ -571,9 +571,12 @@ class IRPassManager:
                     break
 
         normalized, renumbered = self.numbering.run(optimized)
-        requires_materialized = any(
-            _requires_materialized_values(function)
-            for function in (normalized.main, *normalized.functions)
+        requires_materialized = module.requires_materialized_values or (
+            optimize
+            and any(
+                _requires_materialized_values(function)
+                for function in (normalized.main, *normalized.functions)
+            )
         )
         normalized = replace(
             normalized,

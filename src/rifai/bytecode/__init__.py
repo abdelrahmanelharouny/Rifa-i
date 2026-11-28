@@ -15,6 +15,7 @@ from rifai.bytecode.module import (
     DEBUG_INFO_FORMAT_VERSION,
     FORMAT_VERSION,
     NOMINAL_TYPES_FORMAT_VERSION,
+    ALGEBRAIC_TYPES_FORMAT_VERSION,
     FUNCTIONS_FORMAT_VERSION,
     LEGACY_FORMAT_VERSION,
 )
@@ -54,6 +55,7 @@ __all__ = [
     "Instruction",
     "LEGACY_FORMAT_VERSION",
     "NOMINAL_TYPES_FORMAT_VERSION",
+    "ALGEBRAIC_TYPES_FORMAT_VERSION",
     "Opcode",
     "OptimizationResult",
     "OptimizationStats",

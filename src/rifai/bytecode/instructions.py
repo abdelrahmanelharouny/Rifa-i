@@ -118,6 +118,7 @@ def stack_requirement(opcode: Opcode) -> int:
         Opcode.JUMP_IF_FALSE,
         Opcode.NEGATE,
         Opcode.NOT,
+        Opcode.FIELD_GET,
     }:
         return 1
     if opcode in {

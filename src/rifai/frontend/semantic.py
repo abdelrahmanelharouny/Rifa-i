@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Final
 
 from rifai.errors.diagnostics import Diagnostic, DiagnosticPhase
+from rifai.stdlib import BUILTIN_FUNCTIONS
 from rifai.frontend.ast_nodes import (
     ArrayLiteralExpression,
     AssignmentStatement,
@@ -42,7 +43,6 @@ from rifai.frontend.types import (
     RifaiType,
     StaticType,
     UserDefinedType,
-    type_name,
     array_element_type,
     array_type_for,
     is_array_type,
@@ -61,11 +61,7 @@ _RELATIONAL_OPS: Final[frozenset[TokenType]] = frozenset(
     }
 )
 
-_BUILTIN_FUNCTIONS: Final[frozenset[str]] = frozenset({
-    "len", "push", "pop", "abs", "min", "max", "sqrt", "round",
-    "to_int", "to_float", "to_string", "contains", "starts_with",
-    "ends_with", "substring", "read_text", "write_text", "file_exists",
-})
+_BUILTIN_FUNCTIONS: Final[frozenset[str]] = frozenset(BUILTIN_FUNCTIONS)
 
 _EQUALITY_OPS: Final[frozenset[TokenType]] = frozenset(
     {

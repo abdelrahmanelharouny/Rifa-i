@@ -141,7 +141,8 @@ def test_generic_array_annotation_requires_supported_primitive_array_after_subst
     source = """\
 struct Point { x: int }
 fn first<T>(items: T[]) -> T { return items[0]; }
-let point = first([Point(1)]);
+let points: Point[] = [Point(1)];
+let point = first(points);
 """
     result = Compiler().compile(source)
     assert not result.is_success

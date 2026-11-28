@@ -217,12 +217,19 @@ class IRGlobalCommonSubexpressionEliminationPass:
                         and len(candidate.outputs) == 1
                     ):
                         output = candidate.outputs[0]
-                        key = (
-                            candidate.opcode.value,
-                            candidate.operand,
-                            inputs,
-                            output.type_name,
-                        )
+                        if candidate.opcode.value == "LOAD_LOCAL":
+                            key = (
+                                candidate.opcode.value,
+                                candidate.operand,
+                                output.type_name,
+                            )
+                        else:
+                            key = (
+                                candidate.opcode.value,
+                                candidate.operand,
+                                inputs,
+                                output.type_name,
+                            )
                         existing = available.get(key)
                         if existing is not None:
                             aliases[output.value_id] = _resolve(existing, aliases)
@@ -230,6 +237,17 @@ class IRGlobalCommonSubexpressionEliminationPass:
                             continue
                         available[key] = output.value_id
                     operations.append(candidate)
+                    if candidate.opcode.value == "STORE_LOCAL":
+                        # Local loads are commonable only within a memory
+                        # version. A store kills cached reads for that slot.
+                        stale = [
+                            key for key in available
+                            if len(key) == 3
+                            and key[0] == "LOAD_LOCAL"
+                            and key[1] == candidate.operand
+                        ]
+                        for key in stale:
+                            available.pop(key, None)
 
                 rewritten_blocks[block_id] = replace(
                     block,

@@ -770,10 +770,16 @@ class SemanticAnalyzer:
             self._error(expr.span,
                         f"Enum variant '{expr.enum_name}.{expr.variant_name}' expects {len(variant.payload_types)} payload value(s), got {len(expr.arguments)}.")
         for index, argument in enumerate(expr.arguments):
-            actual = self._analyze_expression(argument)
-            if index < len(variant.payload_types):
-                expected = self._resolve_type(variant.payload_types[index].name)
-                if expected is not None and not is_error_type(actual) and actual != expected:
+            expected = (
+                self._resolve_type(variant.payload_types[index].name)
+                if index < len(variant.payload_types) else None
+            )
+            actual = self._analyze_expression(
+                argument,
+                expected_type=expected if expected is not None and is_array_type(expected) else None,
+            )
+            if expected is not None:
+                if not is_error_type(actual) and actual != expected:
                     self._error(argument.span,
                                 f"Payload {index + 1} of '{expr.enum_name}.{expr.variant_name}' expects '{expected.value}', got '{actual.value}'.")
         self._enum_constructor_bindings[id(expr)] = (declaration, variant)
@@ -1059,10 +1065,16 @@ class SemanticAnalyzer:
                     f"Struct '{expr.callee}' expects {len(struct.fields)} field value(s), got {len(expr.arguments)}.",
                 )
             for index, argument in enumerate(expr.arguments):
-                actual = self._analyze_expression(argument)
-                if index < len(struct.fields):
-                    expected = self._resolve_type(struct.fields[index].type_annotation.name)
-                    if expected is not None and not is_error_type(actual) and actual != expected:
+                expected = (
+                    self._resolve_type(struct.fields[index].type_annotation.name)
+                    if index < len(struct.fields) else None
+                )
+                actual = self._analyze_expression(
+                    argument,
+                    expected_type=expected if expected is not None and is_array_type(expected) else None,
+                )
+                if expected is not None:
+                    if not is_error_type(actual) and actual != expected:
                         self._error(
                             argument.span,
                             f"Field '{struct.fields[index].name}' expects '{expected.value}', got '{actual.value}'.",

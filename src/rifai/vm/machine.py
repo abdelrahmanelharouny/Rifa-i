@@ -8,6 +8,7 @@ from pathlib import Path
 import tempfile
 from dataclasses import dataclass
 import math
+import re
 
 from rifai.bytecode.chunk import BytecodeFunction, CodeChunk
 from rifai.bytecode.instructions import Instruction, Opcode
@@ -128,11 +129,23 @@ class VirtualMachine:
         self.max_file_bytes = max_file_bytes
 
     @staticmethod
+    def _valid_runtime_type_name(type_name: str) -> bool:
+        if not isinstance(type_name, str) or not type_name or len(type_name) > 1024:
+            return False
+        if type_name.endswith("[]"):
+            return VirtualMachine._valid_runtime_type_name(type_name[:-2])
+        return type_name in {"int", "float", "bool", "string"} or (
+            type_name not in {"void", "<error>"}
+            and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", type_name) is not None
+        )
+
+    @staticmethod
     def _matches_type(value: RuntimeValue, type_name: str) -> bool:
         if type_name.endswith("[]"):
             element_type = type_name[:-2]
             return (
-                isinstance(value, ArrayValue)
+                VirtualMachine._valid_runtime_type_name(element_type)
+                and isinstance(value, ArrayValue)
                 and value.element_type == element_type
                 and all(
                     VirtualMachine._matches_type(item, element_type)
@@ -194,7 +207,7 @@ class VirtualMachine:
             ):
                 raise ValueError(f"Initial global {name!r} has an invalid enum variant.")
             if isinstance(value, ArrayValue):
-                if value.element_type not in {"int", "float", "bool", "string"}:
+                if not self._valid_runtime_type_name(value.element_type):
                     raise ValueError(f"Initial global {name!r} has an invalid array element type.")
                 if len(value.items) > self.max_array_items or not all(
                     self._matches_type(item, value.element_type)
@@ -374,14 +387,18 @@ class VirtualMachine:
                 push(globals_[instruction.operand], instruction)
             elif opcode is Opcode.STORE_GLOBAL:
                 globals_[instruction.operand] = pop(instruction)
-            elif opcode in _ARRAY_OPCODE_TYPES:
-                count = instruction.operand
+            elif opcode in _ARRAY_OPCODE_TYPES or opcode is Opcode.ARRAY_NEW_TYPED:
+                if opcode is Opcode.ARRAY_NEW_TYPED:
+                    element_type, count_text = instruction.operand.rsplit("|", 1)
+                    count = int(count_text)
+                else:
+                    count = instruction.operand
+                    element_type = _ARRAY_OPCODE_TYPES[opcode]
                 if len(stack) < count:
                     raise fault("Array construction has insufficient element values.", instruction)
                 values = stack[-count:] if count else []
                 if count:
                     del stack[-count:]
-                element_type = _ARRAY_OPCODE_TYPES[opcode]
                 if not all(self._matches_type(value, element_type) for value in values):
                     raise fault(
                         f"{opcode.value} received an element with the wrong runtime type.",

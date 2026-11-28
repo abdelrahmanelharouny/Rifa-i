@@ -1,126 +1,134 @@
 (* ============================================================================
- * Rifa'i Programming Language — Formal EBNF Grammar (Version 3.3 / Phase 18)
+ * Rifa'i Programming Language — Formal EBNF Grammar (Version 4.0 / Phase 19)
  * ============================================================================
  *
- * Phase 15 adds relative source imports, nominal structs and unit enums,
- * inferred local declarations, and postfix member access.
- * Phase 16 adds for loops, break/continue, and short-circuit logical evaluation.
+ * Phase 15 adds relative imports, nominal structs/enums, inferred locals, and
+ * postfix member access. Phase 16 adds for/break/continue and short circuiting.
  * Phase 17 adds typed enum payloads and exhaustive match expressions.
- * Phase 18 adds generic function type parameters and inferred specialization.
+ * Phase 18 adds generic functions and compile-time function specialization.
+ * Phase 19 adds generic structs/enums, bounded type parameters, explicit type
+ * arguments, recursive arrays, and arrays containing nominal or array values.
  *
- * Imports are top-level and resolve relative to the importing file, confined
- * to the root source directory. Imported declarations share one global
- * compilation namespace. Cycles are rejected.
- * ============================================================================ *)
+ * Generic bounds use the built-in capabilities Numeric, Integral, Addable,
+ * Comparable, Ordered, Equatable, Display, Printable, ArrayElement, and Copy.
+ * ============================================================================
+ *)
 
-program        ::= declaration* EOF ;
+program              ::= declaration* EOF ;
 
-declaration    ::= import_decl
-                 | struct_decl
-                 | enum_decl
-                 | fn_decl
-                 | statement ;
+declaration          ::= import_decl
+                       | struct_decl
+                       | enum_decl
+                       | fn_decl
+                       | statement ;
 
-import_decl    ::= "import" STRING ";" ;
+import_decl          ::= "import" STRING ";" ;
 
-struct_decl    ::= "struct" IDENTIFIER "{"
-                   struct_field ( ( "," | ";" ) struct_field )*
-                   ( "," | ";" )?
-                   "}" ;
+struct_decl          ::= "struct" IDENTIFIER generic_params? "{"
+                         struct_field ( ( "," | ";" ) struct_field )*
+                         ( "," | ";" )?
+                         "}" ;
 
-struct_field   ::= IDENTIFIER ":" type_spec ;
+struct_field         ::= IDENTIFIER ":" type_spec ;
 
-enum_decl      ::= "enum" IDENTIFIER "{"
-                   enum_variant ( "," enum_variant )* ","?
-                   "}" ;
+enum_decl            ::= "enum" IDENTIFIER generic_params? "{"
+                         enum_variant ( "," enum_variant )* ","?
+                         "}" ;
 
-enum_variant   ::= IDENTIFIER ( "(" type_list? ")" )? ;
-type_list      ::= type_spec ( "," type_spec )* ;
+enum_variant         ::= IDENTIFIER ( "(" type_list? ")" )? ;
+type_list            ::= type_spec ( "," type_spec )* ;
 
-fn_decl        ::= "fn" IDENTIFIER generic_params? "(" param_list? ")" "->" return_type block ;
-generic_params ::= "<" IDENTIFIER ( "," IDENTIFIER )* ">" ;
+fn_decl              ::= "fn" IDENTIFIER generic_params? "(" param_list? ")"
+                         "->" return_type block ;
 
-param_list     ::= param ( "," param )* ;
-param          ::= IDENTIFIER ":" type_spec ;
+generic_params       ::= "<" generic_parameter ( "," generic_parameter )* ">" ;
+generic_parameter    ::= IDENTIFIER ( ":" constraint ( "+" constraint )* )? ;
+constraint           ::= "Numeric" | "Integral" | "Addable"
+                       | "Comparable" | "Ordered" | "Equatable"
+                       | "Display" | "Printable" | "ArrayElement" | "Copy" ;
 
-type_spec      ::= primitive_type ( "[" "]" )?
-                 | IDENTIFIER ( "[" "]" )? ;
+type_arguments       ::= "<" type_spec ( "," type_spec )* ">" ;
+type_spec            ::= primitive_type array_suffix*
+                       | IDENTIFIER type_arguments? array_suffix* ;
+array_suffix         ::= "[" "]" ;
 
-primitive_type ::= "int" | "float" | "bool" | "string" ;
-return_type    ::= type_spec | "void" ;
+param_list           ::= param ( "," param )* ;
+param                ::= IDENTIFIER ":" type_spec ;
+primitive_type       ::= "int" | "float" | "bool" | "string" ;
+return_type          ::= type_spec | "void" ;
 
-statement      ::= var_decl
-                 | assign_stmt
-                 | if_stmt
-                 | while_stmt
-                 | for_stmt
-                 | break_stmt
-                 | continue_stmt
-                 | return_stmt
-                 | print_stmt
-                 | block
-                 | expr_stmt ;
+statement            ::= var_decl
+                       | assign_stmt
+                       | if_stmt
+                       | while_stmt
+                       | for_stmt
+                       | break_stmt
+                       | continue_stmt
+                       | return_stmt
+                       | print_stmt
+                       | block
+                       | expr_stmt ;
 
-block          ::= "{" statement* "}" ;
+block                ::= "{" statement* "}" ;
+var_decl             ::= "let" IDENTIFIER ( ":" type_spec )? "=" expression ";" ;
+assign_stmt          ::= postfix_expr "=" expression ";" ;
 
-var_decl       ::= "let" IDENTIFIER ( ":" type_spec )? "=" expression ";" ;
+if_stmt              ::= "if" "(" expression ")" block
+                         ( "else" ( if_stmt | block ) )? ;
+while_stmt           ::= "while" "(" expression ")" block ;
+for_stmt             ::= "for" "(" for_initializer? ";" expression? ";"
+                         for_increment? ")" block ;
+for_initializer      ::= var_decl | for_clause ;
+for_increment        ::= for_clause ;
+for_clause           ::= postfix_expr "=" expression | expression ;
 
-assign_stmt    ::= postfix_expr "=" expression ";" ;
+break_stmt           ::= "break" ";" ;
+continue_stmt        ::= "continue" ";" ;
+return_stmt          ::= "return" expression? ";" ;
+print_stmt           ::= "print" "(" expression ")" ";" ;
+expr_stmt            ::= expression ";" ;
 
-if_stmt        ::= "if" "(" expression ")" block
-                   ( "else" ( if_stmt | block ) )? ;
+expression           ::= logic_or ;
+logic_or             ::= logic_and ( "or" logic_and )* ;
+logic_and            ::= equality ( "and" equality )* ;
+equality             ::= comparison ( ( "==" | "!=" ) comparison )* ;
+comparison           ::= term ( ( "<" | ">" | "<=" | ">=" ) term )* ;
+term                 ::= factor ( ( "+" | "-" ) factor )* ;
+factor               ::= unary ( ( "*" | "/" | "%" ) unary )* ;
+unary                ::= ( "-" | "not" ) unary | postfix_expr ;
 
-while_stmt     ::= "while" "(" expression ")" block ;
+postfix_expr         ::= primary postfix_suffix* ;
+postfix_suffix       ::= type_arguments
+                       | "(" arg_list? ")"
+                       | "[" expression "]"
+                       | "." IDENTIFIER ;
 
-for_stmt       ::= "for" "(" for_initializer? ";" expression? ";" for_increment? ")" block ;
-for_initializer ::= var_decl | for_clause ;
-for_increment  ::= for_clause ;
-for_clause     ::= postfix_expr "=" expression | expression ;
+primary              ::= INTEGER
+                       | FLOAT
+                       | STRING
+                       | "true"
+                       | "false"
+                       | match_expr
+                       | IDENTIFIER
+                       | "(" expression ")"
+                       | array_literal ;
 
-break_stmt     ::= "break" ";" ;
-continue_stmt  ::= "continue" ";" ;
+match_expr           ::= "match" "(" expression ")" "{"
+                         match_arm ( "," match_arm )* ","? "}" ;
+match_arm            ::= pattern "=>" expression ;
+pattern              ::= "_"
+                       | IDENTIFIER type_arguments? "." IDENTIFIER
+                         ( "(" binding_list? ")" )? ;
+binding_list         ::= IDENTIFIER ( "," IDENTIFIER )* ;
 
-return_stmt    ::= "return" expression? ";" ;
-print_stmt     ::= "print" "(" expression ")" ";" ;
-expr_stmt      ::= expression ";" ;
+array_literal        ::= "[" ( expression ( "," expression )* )? "]" ;
+arg_list             ::= expression ( "," expression )* ;
 
-expression     ::= logic_or ;
-logic_or       ::= logic_and ( "or" logic_and )* ;
-logic_and      ::= equality ( "and" equality )* ;
-equality       ::= comparison ( ( "==" | "!=" ) comparison )* ;
-comparison     ::= term ( ( "<" | ">" | "<=" | ">=" ) term )* ;
-term           ::= factor ( ( "+" | "-" ) factor )* ;
-factor         ::= unary ( ( "*" | "/" | "%" ) unary )* ;
-unary          ::= ( "-" | "not" ) unary | postfix_expr ;
-
-postfix_expr   ::= primary ( "[" expression "]" | "." IDENTIFIER )* ;
-
-primary        ::= INTEGER
-                 | FLOAT
-                 | STRING
-                 | "true"
-                 | "false"
-                 | match_expr
-                 | fn_call
-                 | enum_constructor
-                 | IDENTIFIER
-                 | "(" expression ")"
-                 | array_literal ;
-
-enum_constructor ::= IDENTIFIER "." IDENTIFIER "(" arg_list? ")" ;
-match_expr     ::= "match" "(" expression ")" "{" match_arm ( "," match_arm )* ","? "}" ;
-match_arm      ::= pattern "=>" expression ;
-pattern        ::= "_" | IDENTIFIER "." IDENTIFIER ( "(" binding_list? ")" )? ;
-binding_list   ::= IDENTIFIER ( "," IDENTIFIER )* ;
-
-array_literal  ::= "[" ( expression ( "," expression )* )? "]" ;
-fn_call        ::= IDENTIFIER "(" arg_list? ")" ;
-arg_list       ::= expression ( "," expression )* ;
-
-IDENTIFIER     ::= ( ASCII_LETTER | "_" ) ( ASCII_LETTER | DIGIT | "_" )* ;
-INTEGER        ::= DIGIT+ ;
-FLOAT          ::= DIGIT+ "." DIGIT+ ;
-STRING         ::= '"' ( STRING_CHAR | ESCAPE_SEQ )* '"' ;
-ESCAPE_SEQ     ::= '\"' | '\\' | '\n' | '\t' | '\r' ;
-ASCII_LETTER   ::= "A".."Z" | "a".."z" ;
-DIGIT          ::= "0".."9" ;
+IDENTIFIER           ::= ( ASCII_LETTER | "_" )
+                         ( ASCII_LETTER | DIGIT | "_" )* ;
+INTEGER              ::= DIGIT+ ;
+FLOAT                ::= DIGIT+ "." DIGIT+ ;
+STRING               ::= '"' ( STRING_CHAR | ESCAPE_SEQ )* '"' ;
+ESCAPE_SEQ           ::= '\\"' | "\\\\" | "\\n" | "\\t" | "\\r" ;
+ASCII_LETTER         ::= "A".."Z" | "a".."z" ;
+DIGIT                ::= "0".."9" ;

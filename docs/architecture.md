@@ -156,7 +156,7 @@ Structs lower to STRUCT_NEW, FIELD_GET, and FIELD_SET operations. Struct constru
 
 The intrinsic library adds checked numeric, conversion, and string operations. File functions are implemented in the VM but are not automatically available to embedded hosts: the default VM disables file I/O. A host may explicitly grant a file_root capability, and the CLI, interactive debugger, and DAP launch grant only the launched project's directory. Paths are resolved under that root; traversal and symlink escapes are rejected. Reads/writes are bounded UTF-8 text operations, and writes use atomic replacement.
 
-Bytecode v5 added nominal struct/unit-enum instruction contracts and allowed nominal names in function and debugger metadata. Bytecode v6 adds typed enum payload construction and enum pattern-test/payload-extraction instructions. The serializer, verifier, and VM support versions 1–5 as legacy formats, while the direct source compiler emits v6. Compatibility APIs continue to lift and lower previously verified bytecode modules without upgrading their format.
+Bytecode v5 added nominal struct/unit-enum instruction contracts and allowed nominal names in function and debugger metadata. Bytecode v6 adds typed enum payload construction and enum pattern-test/payload-extraction instructions. Bytecode v7 adds ARRAY_NEW_TYPED for nested arrays and arrays of nominal values, and recursive type names in signatures/debug metadata. The serializer, verifier, and VM support bytecode versions 1–7; the direct source compiler emits v7. Compatibility APIs continue to lift and lower previously verified bytecode modules without upgrading their format.
 
 ## 11. Project Phases
 

@@ -47,6 +47,7 @@ from rifai.frontend.ast_nodes import (
 from rifai.frontend.symbol_table import FunctionSymbol, SymbolTable, VariableSymbol
 from rifai.frontend.tokens import TokenType
 from rifai.frontend.types import (
+    ArrayType,
     RifaiType,
     StaticType,
     UserDefinedType,
@@ -249,7 +250,14 @@ class SemanticAnalyzer:
                 self._nominal_types[name] = UserDefinedType(name, "enum")
 
     def _resolve_type(self, name: str) -> StaticType | None:
-        return type_from_name(name) or self._nominal_types.get(name)
+        resolved = type_from_name(name)
+        if resolved is not None:
+            return resolved
+        if name.endswith("[]"):
+            element = self._resolve_type(name[:-2])
+            if element is not None and element not in (RifaiType.VOID, RifaiType.ERROR):
+                return ArrayType(element)
+        return self._nominal_types.get(name)
 
     # --- Pass 1: Function signature collection -------------------------------
 
@@ -762,10 +770,16 @@ class SemanticAnalyzer:
             self._error(expr.span,
                         f"Enum variant '{expr.enum_name}.{expr.variant_name}' expects {len(variant.payload_types)} payload value(s), got {len(expr.arguments)}.")
         for index, argument in enumerate(expr.arguments):
-            actual = self._analyze_expression(argument)
-            if index < len(variant.payload_types):
-                expected = self._resolve_type(variant.payload_types[index].name)
-                if expected is not None and not is_error_type(actual) and actual != expected:
+            expected = (
+                self._resolve_type(variant.payload_types[index].name)
+                if index < len(variant.payload_types) else None
+            )
+            actual = self._analyze_expression(
+                argument,
+                expected_type=expected if expected is not None and is_array_type(expected) else None,
+            )
+            if expected is not None:
+                if not is_error_type(actual) and actual != expected:
                     self._error(argument.span,
                                 f"Payload {index + 1} of '{expr.enum_name}.{expr.variant_name}' expects '{expected.value}', got '{actual.value}'.")
         self._enum_constructor_bindings[id(expr)] = (declaration, variant)
@@ -858,7 +872,7 @@ class SemanticAnalyzer:
         self,
         expr: ArrayLiteralExpression,
         expected_type: StaticType | None,
-    ) -> RifaiType:
+    ) -> StaticType:
         if not expr.elements:
             if expected_type is not None and is_array_type(expected_type):
                 return expected_type
@@ -868,13 +882,24 @@ class SemanticAnalyzer:
             )
             return RifaiType.ERROR
 
-        element_types = [self._analyze_expression(item) for item in expr.elements]
+        expected_element = array_element_type(expected_type) if expected_type is not None and is_array_type(expected_type) else None
+        element_types = [
+            self._analyze_expression(
+                item,
+                expected_type=expected_element if expected_element is not None and is_array_type(expected_element) else None,
+            )
+            for item in expr.elements
+        ]
         first_type = element_types[0]
-        inferred_array = array_type_for(first_type)
+        inferred_array = (
+            array_type_for(first_type)
+            if not is_error_type(first_type) and first_type is not RifaiType.VOID
+            else None
+        )
         if inferred_array is None:
             self._error(
                 expr.elements[0].span,
-                "Arrays can contain only primitive int, float, bool, or string values.",
+                f"Array elements must be values, got '{first_type.value}'.",
             )
             return RifaiType.ERROR
 
@@ -1040,10 +1065,16 @@ class SemanticAnalyzer:
                     f"Struct '{expr.callee}' expects {len(struct.fields)} field value(s), got {len(expr.arguments)}.",
                 )
             for index, argument in enumerate(expr.arguments):
-                actual = self._analyze_expression(argument)
-                if index < len(struct.fields):
-                    expected = self._resolve_type(struct.fields[index].type_annotation.name)
-                    if expected is not None and not is_error_type(actual) and actual != expected:
+                expected = (
+                    self._resolve_type(struct.fields[index].type_annotation.name)
+                    if index < len(struct.fields) else None
+                )
+                actual = self._analyze_expression(
+                    argument,
+                    expected_type=expected if expected is not None and is_array_type(expected) else None,
+                )
+                if expected is not None:
+                    if not is_error_type(actual) and actual != expected:
                         self._error(
                             argument.span,
                             f"Field '{struct.fields[index].name}' expects '{expected.value}', got '{actual.value}'.",
@@ -1091,7 +1122,7 @@ class SemanticAnalyzer:
                 return RifaiType.ERROR
             if (
                 not is_error_type(argument_types[1])
-                and argument_types[1] is not element_type
+                and argument_types[1] != element_type
             ):
                 self._error(
                     expr.arguments[1].span,

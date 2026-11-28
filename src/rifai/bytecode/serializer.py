@@ -18,6 +18,7 @@ from rifai.bytecode.module import (
     COLLECTIONS_FORMAT_VERSION,
     NOMINAL_TYPES_FORMAT_VERSION,
     ALGEBRAIC_TYPES_FORMAT_VERSION,
+    GENERIC_TYPES_FORMAT_VERSION,
     DEBUG_INFO_FORMAT_VERSION,
     FORMAT_VERSION,
     FUNCTIONS_FORMAT_VERSION,
@@ -185,8 +186,20 @@ def _function_from_json(raw: object) -> BytecodeFunction:
     )
 
 
-def _valid_debug_type_name(value: str, *, allow_nominal: bool) -> bool:
-    if value in {"int", "float", "bool", "string", "int[]", "float[]", "bool[]", "string[]"}:
+def _valid_debug_type_name(
+    value: str,
+    *,
+    allow_nominal: bool,
+    allow_generic_types: bool = False,
+) -> bool:
+    if value.endswith("[]"):
+        element = value[:-2]
+        if allow_generic_types:
+            return _valid_debug_type_name(
+                element, allow_nominal=allow_nominal, allow_generic_types=True
+            )
+        return value in {"int[]", "float[]", "bool[]", "string[]"}
+    if value in {"int", "float", "bool", "string"}:
         return True
     return (
         allow_nominal
@@ -200,6 +213,7 @@ def _debug_info_to_json(
     info: BytecodeDebugInfo | None,
     *,
     allow_nominal: bool = False,
+    allow_generic_types: bool = False,
 ) -> dict[str, object] | None:
     if info is None:
         return None
@@ -231,7 +245,11 @@ def _debug_info_to_json(
                 or symbol.slot in seen_slots
                 or not isinstance(symbol.name, str) or not symbol.name
                 or not isinstance(symbol.type_name, str)
-                or not _valid_debug_type_name(symbol.type_name, allow_nominal=allow_nominal)
+                or not _valid_debug_type_name(
+                    symbol.type_name,
+                    allow_nominal=allow_nominal,
+                    allow_generic_types=allow_generic_types,
+                )
             ):
                 raise BytecodeFormatError("Invalid or duplicate debug local-symbol entry.")
             seen_slots.add(symbol.slot)
@@ -248,6 +266,7 @@ def _debug_info_from_json(
     raw: object,
     *,
     allow_nominal: bool = False,
+    allow_generic_types: bool = False,
 ) -> BytecodeDebugInfo | None:
     if raw is None:
         return None
@@ -278,7 +297,11 @@ def _debug_info_from_json(
                 type(slot) is not int
                 or not isinstance(name, str)
                 or not isinstance(type_name, str)
-                or not _valid_debug_type_name(type_name, allow_nominal=allow_nominal)
+                or not _valid_debug_type_name(
+                    type_name,
+                    allow_nominal=allow_nominal,
+                    allow_generic_types=allow_generic_types,
+                )
             ):
                 raise BytecodeFormatError("Debug local-symbol fields have invalid types.")
             symbols.append(BytecodeDebugLocal(slot, name, type_name))
@@ -299,8 +322,10 @@ class BytecodeSerializer:
     """Encode and decode bytecode versions 1 through 5.
 
     Version 1 stores a main chunk, version 2 adds function chunks, version 3
-    adds optional embedded debug metadata, version 4 adds typed arrays, and
-    version 5 adds nominal struct/enum operations, and version 6 adds algebraic enum payloads. Older versions remain readable.
+    adds optional embedded debug metadata, version 4 adds primitive typed arrays,
+    version 5 adds nominal struct/enum operations, version 6 adds algebraic enum
+    payloads, and version 7 adds recursive and nominal typed arrays. Older
+    versions remain readable.
     """
 
     @staticmethod
@@ -311,11 +336,12 @@ class BytecodeSerializer:
             LEGACY_FORMAT_VERSION, FUNCTIONS_FORMAT_VERSION,
             DEBUG_INFO_FORMAT_VERSION, COLLECTIONS_FORMAT_VERSION,
             NOMINAL_TYPES_FORMAT_VERSION,
-            ALGEBRAIC_TYPES_FORMAT_VERSION
+            ALGEBRAIC_TYPES_FORMAT_VERSION,
+            GENERIC_TYPES_FORMAT_VERSION,
         ):
             raise BytecodeFormatError(
                 f"Cannot write bytecode version {module.format_version}; "
-                "supported versions are 1, 2, 3, 4, 5, and 6."
+                "supported versions are 1 through 7."
             )
         if module.format_version < FUNCTIONS_FORMAT_VERSION and module.functions:
             raise BytecodeFormatError("Version 1 bytecode cannot contain function chunks.")
@@ -340,6 +366,7 @@ class BytecodeSerializer:
                 payload["debug_info"] = _debug_info_to_json(
                     module.debug_info,
                     allow_nominal=module.format_version >= NOMINAL_TYPES_FORMAT_VERSION,
+                    allow_generic_types=module.format_version >= GENERIC_TYPES_FORMAT_VERSION,
                 )
             encoded = json.dumps(
                 payload,
@@ -383,10 +410,11 @@ class BytecodeSerializer:
             LEGACY_FORMAT_VERSION, FUNCTIONS_FORMAT_VERSION,
             DEBUG_INFO_FORMAT_VERSION, COLLECTIONS_FORMAT_VERSION,
             NOMINAL_TYPES_FORMAT_VERSION,
-            ALGEBRAIC_TYPES_FORMAT_VERSION
+            ALGEBRAIC_TYPES_FORMAT_VERSION,
+            GENERIC_TYPES_FORMAT_VERSION,
         ):
             raise BytecodeFormatError(
-                f"Unsupported bytecode version {version!r}; supported versions are 1, 2, 3, 4, 5, and 6."
+                f"Unsupported bytecode version {version!r}; supported versions are 1 through 7."
             )
 
         expected_fields = {"magic", "format_version", "source_name", "constants", "main"}
@@ -414,6 +442,7 @@ class BytecodeSerializer:
         debug_info = _debug_info_from_json(
                 payload.get("debug_info"),
                 allow_nominal=version >= NOMINAL_TYPES_FORMAT_VERSION,
+                allow_generic_types=version >= GENERIC_TYPES_FORMAT_VERSION,
             )
         return BytecodeModule(
             constants=constants,

@@ -1,0 +1,48 @@
+struct Box<T: Display> {
+    value: T,
+}
+
+struct Point {
+    x: int,
+}
+
+enum Option<T: Display> {
+    Some(T),
+    None,
+}
+
+fn identity<T>(value: T) -> T {
+    return value;
+}
+
+fn describe<T: Display>(option: Option<T>) -> string {
+    return match (option) {
+        Option.Some(value) => to_string(value),
+        Option.None => "none",
+    };
+}
+
+fn first<T: ArrayElement>(values: T[]) -> T {
+    return values[0];
+}
+
+fn add<T: Addable>(left: T, right: T) -> T {
+    return left + right;
+}
+
+let boxes: Box<int>[] = [Box<int>(10), Box(20)];
+let points: Point[] = [Point(3), Point(5)];
+let matrix: int[][] = [[1, 2], [3, 4]];
+let empty: int[][] = [[], []];
+let selected: Option<int> = Option<int>.Some(42);
+let missing: Option<string> = Option<string>.None;
+
+print(to_string(first(boxes).value));
+print(to_string(first(points).x));
+print(to_string(matrix[1][0]));
+print(to_string(len(empty[0])));
+print(describe(selected));
+print(describe(missing));
+print(add<int>(4, 6));
+print(add("ri", "fai"));
+print(to_string(len(identity<int[]>([]))));

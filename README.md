@@ -21,7 +21,8 @@ Rifa'i (.rif) is a custom statically typed programming language implemented in P
 - **Phase 15 — Language Evolution (Complete):** Relative source modules with dependency ordering/cycle and traversal checks; nominal structs and unit enums; inferred local variables; field access and mutation; checked math/string/conversion/file standard-library functions; capability-based bounded UTF-8 file I/O; and bytecode v5 with continued v1-v4 compatibility.
 - **Phase 16 — Advanced Control Flow (Complete):** C-style for loops with scoped initializers and optional clauses; break/continue with correct nested-loop targets; and true short-circuit and/or lowering through explicit IR branches and block parameters.
 - **Phase 17 — Algebraic Data Types & Pattern Matching (Complete):** Typed enum payload variants, immutable tagged runtime values, exhaustive enum match expressions with scoped payload bindings, explicit IR decision trees, and bytecode v6 with v1–v5 compatibility.
-- **Phase 18 — Generics & Parametric Polymorphism (Complete):** Generic function declarations, inferred type arguments, deterministic compile-time monomorphization, cached specializations, typed-array parameters, nominal-type specialization, recursive generic calls, and LSP diagnostics without changing the VM or bytecode format.
+- **Phase 18 — Generic Functions (Complete):** Generic function declarations, inferred type arguments, deterministic compile-time monomorphization, cached specializations, recursive generic calls, and LSP diagnostics.
+- **Phase 19 — Full Generic Types & Recursive Collections (Complete):** Generic structs and enums, explicit and inferred type arguments, built-in type capability bounds, recursive nested arrays, arrays of nominal values, generic nominal arrays, recursive type substitution, and bytecode v7 typed-array construction with v1–v6 compatibility.
 
 ## Quick Start
 
@@ -66,6 +67,9 @@ rifai run examples/phase17_algebraic_data_types.rif
 
 # Run the Phase 18 generic functions example
 rifai run examples/phase18_generics.rif
+
+# Run the Phase 19 generic nominal types and recursive collections example
+rifai run examples/phase19_generic_types.rif
 
 # Run the complete test suite
 python -m pytest -v
@@ -115,7 +119,7 @@ The bytecode format is version 2. The reader retains support for version 1 modul
 
 ## Testing
 
-The suite covers lexical and syntactic analysis, algebraic enum payloads and exhaustive pattern matching, nominal types, imports, inferred declarations, typed-array construction/indexing/mutation, standard-library functions, sandboxed file I/O, bytecode versions 1–6, VM operations, source compilation, control flow, local/global variables, function calls, recursion, optimization parity, optimizer invariants, resource limits, and CLI workflows.
+The suite covers lexical and syntactic analysis, generic structs/enums/functions and type bounds, explicit and inferred generic arguments, recursive arrays and nominal arrays, algebraic enum payloads and exhaustive matching, imports, inferred declarations, typed-array construction/indexing/mutation, standard-library functions, sandboxed file I/O, bytecode versions 1–7, VM operations, source compilation, control flow, local/global variables, function calls, recursion, optimization parity, optimizer invariants, resource limits, and CLI workflows.
 
 ```bash
 python -m pytest -v
@@ -157,7 +161,7 @@ print(pop(numbers));
 print(len(numbers));
 ```
 
-Non-empty literals infer the element type and require exact homogeneity. Empty literals are permitted when their surrounding declaration/parameter/return type supplies the element type. Arrays can be passed to and returned from functions. They are reference values, so aliases observe mutations. Nested arrays are intentionally unsupported.
+At the original Phase 8 release, arrays were one-dimensional and limited to primitive elements. Phase 19 extends the same homogeneous/reference semantics to structs, enums, and nested arrays of arbitrary supported concrete value types. Empty literals still require a surrounding type context.
 
 The standard collection functions are len(string or T[]) -> int, push(T[], T) -> void, and pop(T[]) -> T. Array indexes are zero-based. The VM checks element types, bounds, empty pops, and a configurable max_array_items limit.
 

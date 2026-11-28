@@ -70,6 +70,7 @@ class IRSideEffectAnalysis:
         Opcode.ARRAY_NEW_FLOAT,
         Opcode.ARRAY_NEW_BOOL,
         Opcode.ARRAY_NEW_STRING,
+        Opcode.ARRAY_NEW_TYPED,
         Opcode.ARRAY_GET,
         Opcode.ARRAY_SET,
         Opcode.LENGTH,

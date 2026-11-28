@@ -98,7 +98,7 @@ def test_arrays_are_reference_values_and_alias_mutations_are_visible() -> None:
         ("let values: int[] = [1]; push(values, true);", "'push' expects an element of type 'int'"),
         ("let size: int = len(10);", "'len' expects a string or array"),
         ('let value: int = pop("text");', "'pop' expects an array"),
-        ("let values: int[] = [[1], [2]];", "Arrays can contain only primitive"),
+        ("let values: int[] = [[1], [2]];", "Array elements must all have type 'int'"),
     ],
 )
 def test_array_types_and_builtins_are_checked_statically(source: str, expected: str) -> None:
@@ -170,10 +170,10 @@ def test_vm_rejects_runtime_array_type_mismatch_in_untrusted_bytecode() -> None:
         VirtualMachine().execute(module)
 
 
-def test_current_bytecode_v6_array_operations_round_trip_and_run() -> None:
+def test_current_bytecode_v7_array_operations_round_trip_and_run() -> None:
     compiled = Compiler().compile("let xs: int[] = [6, 7]; print(xs[1]);")
     assert compiled.is_success and compiled.module is not None
-    assert compiled.module.format_version == 6
+    assert compiled.module.format_version == 7
 
     encoded = BytecodeSerializer.to_bytes(compiled.module)
     restored = BytecodeSerializer.from_bytes(encoded)

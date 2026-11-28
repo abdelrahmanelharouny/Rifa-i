@@ -52,7 +52,7 @@ print(odd_sum);
     result = Compiler(optimize=optimize).compile(source)
     assert result.is_success, result.diagnostics
     assert result.module is not None
-    assert result.module.format_version == 6
+    assert result.module.format_version == 7
     execution = VirtualMachine().execute(result.module)
     assert execution.output == ("false", "true", "1", "13", "9")
 

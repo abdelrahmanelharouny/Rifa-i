@@ -6,6 +6,7 @@ import pytest
 
 from rifai.bytecode import (
     ALGEBRAIC_TYPES_FORMAT_VERSION,
+    GENERIC_TYPES_FORMAT_VERSION,
     BytecodeSerializer,
     BytecodeVerifier,
 )
@@ -66,7 +67,7 @@ print(fallback);
 @pytest.mark.parametrize("optimize", [False, True])
 def test_payload_enums_exhaustive_match_and_wildcard_execute(optimize: bool):
     result = _compile(PROGRAM, optimize=optimize)
-    assert result.module.format_version == ALGEBRAIC_TYPES_FORMAT_VERSION == 6
+    assert result.module.format_version == GENERIC_TYPES_FORMAT_VERSION == 7
     assert VirtualMachine().execute(result.module).output == (
         "value=42", "error=offline", "items7", "empty", "fallback"
     )
@@ -202,7 +203,7 @@ def test_v6_bytecode_roundtrip_and_ir_lifting_preserve_match_behavior():
     lifted = BytecodeToIR().build(restored)
     assert IRVerifier().verify(lifted).is_valid
     lowered = IRToBytecode().lower(lifted)
-    assert lowered.format_version == 6
+    assert lowered.format_version == 7
     assert VirtualMachine().execute(lowered).output == VirtualMachine().execute(restored).output
 
 

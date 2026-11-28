@@ -16,6 +16,7 @@ from rifai.frontend.ast_nodes import (
     ExpressionStatement,
     FunctionCallExpression,
     FunctionDeclaration,
+    TypeApplicationExpression,
     GroupingExpression,
     IndexAssignmentStatement,
     IndexExpression,
@@ -217,6 +218,7 @@ class Parser:
     def _parse_struct_declaration(self) -> StructDeclaration:
         keyword = self._consume(TokenType.STRUCT, "Expected 'struct'.")
         name = self._consume(TokenType.IDENTIFIER, "Expected struct name.")
+        type_parameters, type_parameter_bounds = self._parse_generic_parameters()
         self._consume(TokenType.LEFT_BRACE, "Expected '{' after struct name.")
         fields: list[StructField] = []
         while not self._check(TokenType.RIGHT_BRACE) and not self._is_at_end():
@@ -240,11 +242,14 @@ class Parser:
             name_token=name,
             fields=tuple(fields),
             span=SourceSpan.between(keyword, close),
+            type_parameters=type_parameters,
+            type_parameter_bounds=type_parameter_bounds,
         )
 
     def _parse_enum_declaration(self) -> EnumDeclaration:
         keyword = self._consume(TokenType.ENUM, "Expected 'enum'.")
         name = self._consume(TokenType.IDENTIFIER, "Expected enum name.")
+        type_parameters, type_parameter_bounds = self._parse_generic_parameters()
         self._consume(TokenType.LEFT_BRACE, "Expected '{' after enum name.")
         variants: list[EnumVariant] = []
         if not self._check(TokenType.RIGHT_BRACE):
@@ -275,18 +280,14 @@ class Parser:
             name_token=name,
             variants=tuple(variants),
             span=SourceSpan.between(keyword, close),
+            type_parameters=type_parameters,
+            type_parameter_bounds=type_parameter_bounds,
         )
 
     def _parse_function_declaration(self) -> FunctionDeclaration:
         fn_token = self._consume(TokenType.FN, "Expected 'fn' keyword.")
         name_token = self._consume(TokenType.IDENTIFIER, "Expected function name.")
-        type_parameters: list[Token] = []
-        if self._match(TokenType.LESS) is not None:
-            while True:
-                type_parameters.append(self._consume(TokenType.IDENTIFIER, "Expected generic type parameter name."))
-                if self._match(TokenType.COMMA) is None:
-                    break
-            self._consume(TokenType.GREATER, "Expected '>' after generic type parameters.")
+        type_parameters, type_parameter_bounds = self._parse_generic_parameters()
         self._consume(TokenType.LEFT_PAREN, "Expected '(' after function name.")
 
         params: list[Parameter] = []
@@ -322,37 +323,77 @@ class Parser:
             return_type=return_type,
             body=body,
             span=SourceSpan.between(fn_token, body.span),
-            type_parameters=tuple(type_parameters),
+            type_parameters=type_parameters,
+            type_parameter_bounds=type_parameter_bounds,
         )
+
+    def _parse_generic_parameters(self) -> tuple[tuple[Token, ...], tuple[tuple[str, ...], ...]]:
+        if self._match(TokenType.LESS) is None:
+            return (), ()
+        names: list[Token] = []
+        bounds: list[tuple[str, ...]] = []
+        while True:
+            name = self._consume(TokenType.IDENTIFIER, "Expected generic type parameter name.")
+            names.append(name)
+            parameter_bounds: list[str] = []
+            if self._match(TokenType.COLON) is not None:
+                parameter_bounds.append(self._consume(TokenType.IDENTIFIER, "Expected type constraint name.").lexeme)
+                while self._match(TokenType.PLUS) is not None:
+                    parameter_bounds.append(self._consume(TokenType.IDENTIFIER, "Expected type constraint after '+'.").lexeme)
+            bounds.append(tuple(parameter_bounds))
+            if self._match(TokenType.COMMA) is None:
+                break
+        self._consume(TokenType.GREATER, "Expected '>' after generic type parameters.")
+        return tuple(names), tuple(bounds)
+
+    def _looks_like_type_application_suffix(self) -> bool:
+        if not self._check(TokenType.LESS):
+            return False
+        depth = 0
+        for index in range(self._index, len(self._tokens)):
+            token_type = self._tokens[index].token_type
+            if token_type is TokenType.LESS:
+                depth += 1
+            elif token_type is TokenType.GREATER:
+                depth -= 1
+                if depth == 0:
+                    next_index = index + 1
+                    return next_index < len(self._tokens) and self._tokens[next_index].token_type in {
+                        TokenType.LEFT_PAREN, TokenType.DOT
+                    }
+        return False
+
+    def _parse_type_arguments(self) -> tuple[TypeAnnotation, ...]:
+        self._consume(TokenType.LESS, "Expected '<' before type arguments.")
+        arguments: list[TypeAnnotation] = []
+        while True:
+            arguments.append(self._parse_type_annotation("Expected type argument."))
+            if self._match(TokenType.COMMA) is None:
+                break
+        self._consume(TokenType.GREATER, "Expected '>' after type arguments.")
+        return tuple(arguments)
 
     def _parse_type_annotation(self, message: str) -> TypeAnnotation:
         token = self._peek()
-        if token.token_type in _TYPE_TOKENS or token.token_type is TokenType.IDENTIFIER:
-            self._advance()
-            end: Token | SourceSpan = token
-            name = token.lexeme
-            if (
-                token.token_type in {
-                    TokenType.TYPE_INT,
-                    TokenType.TYPE_FLOAT,
-                    TokenType.TYPE_BOOL,
-                    TokenType.TYPE_STRING,
-                    TokenType.IDENTIFIER,
-                }
-                and self._match(TokenType.LEFT_BRACKET) is not None
-            ):
-                close = self._consume(
-                    TokenType.RIGHT_BRACKET,
-                    "Expected ']' after array type brackets.",
-                )
-                name += "[]"
-                end = close
-            return TypeAnnotation(
-                name=name,
-                token=token,
-                span=SourceSpan.between(token, end),
-            )
-        raise self._error(token, message)
+        if token.token_type not in _TYPE_TOKENS and token.token_type is not TokenType.IDENTIFIER:
+            raise self._error(token, message)
+        self._advance()
+        name = token.lexeme
+        end: Token | SourceSpan = token
+        if self._match(TokenType.LESS) is not None:
+            arguments: list[TypeAnnotation] = []
+            while True:
+                arguments.append(self._parse_type_annotation("Expected generic type argument."))
+                if self._match(TokenType.COMMA) is None:
+                    break
+            close = self._consume(TokenType.GREATER, "Expected '>' after generic type arguments.")
+            name += "<" + ",".join(item.name for item in arguments) + ">"
+            end = close
+        while self._match(TokenType.LEFT_BRACKET) is not None:
+            close = self._consume(TokenType.RIGHT_BRACKET, "Expected ']' after array type brackets.")
+            name += "[]"
+            end = close
+        return TypeAnnotation(name=name, token=token, span=SourceSpan.between(token, end))
 
     def _parse_statement(self) -> Statement:
         if self._check(TokenType.FN):
@@ -781,6 +822,26 @@ class Parser:
             raise self._error(current, f"Expected expression, got '{current.lexeme}'.")
 
         while True:
+            if isinstance(expression, VariableExpression) and self._looks_like_type_application_suffix():
+                type_arguments = self._parse_type_arguments()
+                if self._check(TokenType.LEFT_PAREN):
+                    self._advance()
+                    arguments, close = self._parse_call_arguments()
+                    expression = FunctionCallExpression(
+                        callee=expression.name,
+                        callee_token=expression.token,
+                        arguments=arguments,
+                        span=SourceSpan.between(expression.span, close),
+                        type_arguments=type_arguments,
+                    )
+                    continue
+                expression = TypeApplicationExpression(
+                    name=expression.name,
+                    name_token=expression.token,
+                    type_arguments=type_arguments,
+                    span=SourceSpan.between(expression.span, type_arguments[-1].span),
+                )
+                continue
             if self._match(TokenType.LEFT_PAREN) is not None:
                 arguments, close = self._parse_call_arguments()
                 if isinstance(expression, VariableExpression):
@@ -790,17 +851,26 @@ class Parser:
                         arguments=arguments,
                         span=SourceSpan.between(expression.span, close),
                     )
-                elif (
-                    isinstance(expression, MemberExpression)
-                    and isinstance(expression.object, VariableExpression)
+                elif isinstance(expression, MemberExpression) and (
+                    isinstance(expression.object, VariableExpression)
+                    or isinstance(expression.object, TypeApplicationExpression)
                 ):
+                    enum_object = expression.object
                     expression = EnumConstructorExpression(
-                        enum_name=expression.object.name,
-                        enum_token=expression.object.token,
+                        enum_name=enum_object.name,
+                        enum_token=(
+                            enum_object.name_token
+                            if isinstance(enum_object, TypeApplicationExpression)
+                            else enum_object.token
+                        ),
                         variant_name=expression.name,
                         variant_token=expression.name_token,
                         arguments=arguments,
                         span=SourceSpan.between(expression.span, close),
+                        type_arguments=(
+                            enum_object.type_arguments
+                            if isinstance(enum_object, TypeApplicationExpression) else ()
+                        ),
                     )
                 else:
                     raise self._error(self._previous(), "Only functions and enum variants can be called.")
@@ -853,12 +923,15 @@ class Parser:
             variant_token: Token | None = None
             bindings: list[Token] = []
             wildcard = False
+            type_arguments: tuple[TypeAnnotation, ...] = ()
             if self._check(TokenType.IDENTIFIER) and self._peek().lexeme == "_":
                 self._advance()
                 wildcard = True
             else:
                 enum_token = self._consume(TokenType.IDENTIFIER, "Expected enum pattern or '_'.")
                 enum_name = enum_token.lexeme
+                if self._looks_like_type_application_suffix():
+                    type_arguments = self._parse_type_arguments()
                 self._consume(TokenType.DOT, "Expected '.' in enum variant pattern.")
                 variant_token = self._consume(TokenType.IDENTIFIER, "Expected enum variant name.")
                 variant_name = variant_token.lexeme
@@ -880,6 +953,7 @@ class Parser:
                 wildcard=wildcard,
                 body=body,
                 span=SourceSpan.between(start, body.span),
+                type_arguments=type_arguments,
             ))
             if self._match(TokenType.COMMA) is None:
                 break

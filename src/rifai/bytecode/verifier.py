@@ -22,6 +22,7 @@ from rifai.bytecode.module import (
     COLLECTIONS_FORMAT_VERSION,
     NOMINAL_TYPES_FORMAT_VERSION,
     ALGEBRAIC_TYPES_FORMAT_VERSION,
+    GENERIC_TYPES_FORMAT_VERSION,
     DEBUG_INFO_FORMAT_VERSION,
     FORMAT_VERSION,
     FUNCTIONS_FORMAT_VERSION,
@@ -55,10 +56,24 @@ def _is_nominal_type_name(value: str) -> bool:
 
 
 def _valid_type_name(value: str, allow_nominal: bool) -> bool:
-    return value in _ALLOWED_VALUE_TYPES or (allow_nominal and _is_nominal_type_name(value))
+    if value.endswith("[]"):
+        return _valid_type_name(value[:-2], allow_nominal)
+    return value in {"int", "float", "bool", "string"} or (
+        allow_nominal and _is_nominal_type_name(value)
+    )
 
 
-def _valid_struct_schema(value: str) -> bool:
+def _valid_versioned_type_name(value: str, supports_nominal: bool, supports_generic: bool) -> bool:
+    if value == "void":
+        return False
+    if value in _ALLOWED_VALUE_TYPES:
+        return True
+    if supports_generic and value.endswith("[]"):
+        return _valid_type_name(value, allow_nominal=True)
+    return supports_nominal and _is_nominal_type_name(value)
+
+
+def _valid_struct_schema(value: str, *, allow_generic_types: bool = False) -> bool:
     if len(value) > 4096 or "|" not in value:
         return False
     type_name, fields = value.split("|", 1)
@@ -71,7 +86,7 @@ def _valid_struct_schema(value: str) -> bool:
         name, field_type = field.split(":", 1)
         if not _is_identifier(name) or name in seen:
             return False
-        if field_type not in _ALLOWED_VALUE_TYPES and not _is_nominal_type_name(field_type):
+        if not _valid_versioned_type_name(field_type, supports_nominal=True, supports_generic=allow_generic_types):
             return False
         seen.add(name)
     return bool(seen)
@@ -92,7 +107,7 @@ def _valid_enum_variant(value: str) -> bool:
     )
 
 
-def _valid_enum_payload_schema(value: str) -> bool:
+def _valid_enum_payload_schema(value: str, *, allow_generic_types: bool = False) -> bool:
     if len(value) > 4096 or value.count("|") != 2:
         return False
     enum_name, variant, payload_text = value.split("|", 2)
@@ -100,7 +115,7 @@ def _valid_enum_payload_schema(value: str) -> bool:
         return False
     payload_types = payload_text.split(",") if payload_text else []
     return len(payload_types) <= 256 and all(
-        item in _ALLOWED_VALUE_TYPES or _is_nominal_type_name(item)
+        _valid_versioned_type_name(item, supports_nominal=True, supports_generic=allow_generic_types)
         for item in payload_types
     )
 
@@ -114,7 +129,7 @@ def _valid_enum_test(value: str) -> bool:
     )
 
 
-def _valid_enum_payload_access(value: str) -> bool:
+def _valid_enum_payload_access(value: str, *, allow_generic_types: bool = False) -> bool:
     if len(value) > 1024 or value.count("|") != 3:
         return False
     enum_name, variant, index_text, expected = value.split("|", 3)
@@ -123,7 +138,7 @@ def _valid_enum_payload_access(value: str) -> bool:
         and _is_identifier(variant)
         and index_text.isdigit()
         and int(index_text) <= 255
-        and (expected in _ALLOWED_VALUE_TYPES or _is_nominal_type_name(expected))
+        and _valid_versioned_type_name(expected, supports_nominal=True, supports_generic=allow_generic_types)
     )
 
 
@@ -172,6 +187,7 @@ class BytecodeVerifier:
             COLLECTIONS_FORMAT_VERSION,
             NOMINAL_TYPES_FORMAT_VERSION,
             ALGEBRAIC_TYPES_FORMAT_VERSION,
+            GENERIC_TYPES_FORMAT_VERSION,
         ):
             report(f"Unsupported bytecode version {module.format_version!r}.")
         if module.source_name is not None and not isinstance(module.source_name, str):
@@ -219,6 +235,10 @@ class BytecodeVerifier:
         supports_algebraic_types = (
             type(module.format_version) is int
             and module.format_version >= ALGEBRAIC_TYPES_FORMAT_VERSION
+        )
+        supports_generic_types = (
+            type(module.format_version) is int
+            and module.format_version >= GENERIC_TYPES_FORMAT_VERSION
         )
         if not supports_functions and module.functions:
             report("Version 1 bytecode cannot contain function chunks.")
@@ -286,7 +306,7 @@ class BytecodeVerifier:
                                 seen_slots.add(symbol.slot)
                             if not isinstance(symbol.name, str) or not symbol.name:
                                 report(f"Debug local in '{chunk_name}' has an invalid name.")
-                            if not isinstance(symbol.type_name, str) or not _valid_type_name(symbol.type_name, supports_nominal_types):
+                            if not isinstance(symbol.type_name, str) or not _valid_versioned_type_name(symbol.type_name, supports_nominal_types, supports_generic_types):
                                 report(f"Debug local in '{chunk_name}' has an invalid type.")
                             elif not supports_collections and symbol.type_name.endswith("[]"):
                                 report(
@@ -315,7 +335,7 @@ class BytecodeVerifier:
             parameter_types_valid = (
                 isinstance(function.parameter_types, tuple)
                 and all(
-                    isinstance(item, str) and _valid_type_name(item, supports_nominal_types)
+                    isinstance(item, str) and _valid_versioned_type_name(item, supports_nominal_types, supports_generic_types)
                     for item in function.parameter_types
                 )
             )
@@ -323,9 +343,12 @@ class BytecodeVerifier:
                 report(f"Function '{function.name}' has invalid parameter types.")
             return_type_valid = (
                 isinstance(function.return_type, str)
-                and (function.return_type in _ALLOWED_RETURN_TYPES or (
-                    supports_nominal_types and _is_nominal_type_name(function.return_type)
-                ))
+                and (
+                    function.return_type == "void"
+                    or _valid_versioned_type_name(
+                        function.return_type, supports_nominal_types, supports_generic_types
+                    )
+                )
             )
             if not return_type_valid:
                 report(f"Function '{function.name}' has an invalid return type.")
@@ -491,6 +514,21 @@ class BytecodeVerifier:
                 } and (operand < 0 or operand > 1_000_000):
                     report("Array literal element count is outside the supported limit.", instruction)
                     continue
+                elif opcode is Opcode.ARRAY_NEW_TYPED:
+                    if not supports_generic_types:
+                        report(f"ARRAY_NEW_TYPED requires bytecode version {GENERIC_TYPES_FORMAT_VERSION}.", instruction)
+                        continue
+                    if not isinstance(operand, str) or "|" not in operand:
+                        report("ARRAY_NEW_TYPED requires an ElementType|Count operand.", instruction)
+                        continue
+                    element_type, count_text = operand.rsplit("|", 1)
+                    if (
+                        not _valid_type_name(element_type, allow_nominal=True)
+                        or not count_text.isdigit()
+                        or int(count_text) > 1_000_000
+                    ):
+                        report("ARRAY_NEW_TYPED has an invalid element type or element count.", instruction)
+                        continue
                 elif opcode in {Opcode.STRUCT_NEW, Opcode.FIELD_GET, Opcode.FIELD_SET, Opcode.ENUM_NEW}:
                     if not supports_nominal_types:
                         report(f"{opcode.value} requires bytecode version {NOMINAL_TYPES_FORMAT_VERSION}.", instruction)
@@ -498,7 +536,7 @@ class BytecodeVerifier:
                     if not isinstance(operand, str) or not operand:
                         report(f"{opcode.value} requires a non-empty string operand.", instruction)
                         continue
-                    if opcode is Opcode.STRUCT_NEW and not _valid_struct_schema(operand):
+                    if opcode is Opcode.STRUCT_NEW and not _valid_struct_schema(operand, allow_generic_types=supports_generic_types):
                         report("STRUCT_NEW has an invalid or oversized field schema.", instruction)
                         continue
                     if opcode in (Opcode.FIELD_GET, Opcode.FIELD_SET) and not _is_identifier(operand):
@@ -515,9 +553,9 @@ class BytecodeVerifier:
                         report(f"{opcode.value} requires a non-empty string operand.", instruction)
                         continue
                     valid = (
-                        _valid_enum_payload_schema(operand) if opcode is Opcode.ENUM_NEW_PAYLOAD
+                        _valid_enum_payload_schema(operand, allow_generic_types=supports_generic_types) if opcode is Opcode.ENUM_NEW_PAYLOAD
                         else _valid_enum_test(operand) if opcode is Opcode.ENUM_IS
-                        else _valid_enum_payload_access(operand)
+                        else _valid_enum_payload_access(operand, allow_generic_types=supports_generic_types)
                     )
                     if not valid:
                         report(f"{opcode.value} has an invalid enum payload or pattern operand.", instruction)
@@ -574,6 +612,10 @@ class BytecodeVerifier:
                 }:
                     required = instruction.operand
                     delta = 1 - instruction.operand
+                elif opcode is Opcode.ARRAY_NEW_TYPED:
+                    count = int(instruction.operand.rsplit("|", 1)[1])
+                    required = count
+                    delta = 1 - count
                 elif opcode is Opcode.RETURN:
                     required = 1 if return_type != "void" else 0
                     delta = 0

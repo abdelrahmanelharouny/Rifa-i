@@ -14,7 +14,7 @@ class ArrayValue:
     """Mutable homogeneous array allocated by the Rifa'i VM."""
 
     element_type: str
-    items: list[int | float | bool | str]
+    items: list[RuntimeValue]
 
 
 @dataclass(slots=True)
@@ -23,7 +23,7 @@ class StructValue:
 
     type_name: str
     field_types: dict[str, str]
-    fields: dict[str, int | float | bool | str | ArrayValue | StructValue | EnumValue]
+    fields: dict[str, RuntimeValue]
 
 
 @dataclass(frozen=True, slots=True)

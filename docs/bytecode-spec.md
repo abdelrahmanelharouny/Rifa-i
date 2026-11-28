@@ -35,7 +35,7 @@ The `debug_info` object contains:
 
 Debug metadata is optional for hand-authored bytecode, but compiler-produced source programs embed it by default. Embedded source text is limited to 8 Mi characters and the complete bytecode file is limited to 16 MiB. The verifier rejects unknown chunks, duplicate chunk entries, duplicate slots, invalid names/types, and slots outside their owning chunk. Metadata is informational and does not affect VM execution semantics.
 
-The serializer writes version 6 by default and retains v1-v5 read/write compatibility. Version 4 adds typed-array instructions; version 5 adds nominal structs, unit enums, and intrinsic standard-library CALL targets; version 6 adds typed enum payload construction and pattern matching. The reader and verifier accept versions 1 through 6. Constants are tagged as int, float, bool, or string; non-finite floats are forbidden. JSON keys must be unique.
+The serializer writes version 7 by default and retains v1-v6 read/write compatibility. Version 4 adds primitive typed-array instructions; version 5 adds nominal structs, unit enums, and intrinsic standard-library CALL targets; version 6 adds typed enum payload construction and pattern matching; version 7 adds recursive/nominal typed-array construction. The reader and verifier accept versions 1 through 7. Constants are tagged as int, float, bool, or string; non-finite floats are forbidden. JSON keys must be unique.
 
 ## 2. Code Chunks and Frames
 
@@ -47,7 +47,7 @@ A code chunk contains:
 
 For a function chunk, arity must equal the length of its parameter signature and local_count must be at least arity. The first arity slots hold parameters in declaration order. Other locals use the remaining zero-based slots.
 
-Version 1 modules contain only the main chunk. Version 2–6 modules contain one main chunk and zero or more function chunks.
+Version 1 modules contain only the main chunk. Version 2–7 modules contain one main chunk and zero or more function chunks.
 
 ## 3. Instruction Encoding
 
@@ -83,7 +83,8 @@ Jump targets are absolute, zero-based instruction indices within the current chu
 | JUMP_IF_FALSE | instruction index | -1 | Pop bool and branch when false |
 | CALL | function name | -arity + returns-value | Invoke a function with arguments already on the stack |
 | RETURN | none | function terminal | Return the top value from value functions; void functions return no value |
-| ARRAY_NEW_INT / ARRAY_NEW_FLOAT / ARRAY_NEW_BOOL / ARRAY_NEW_STRING | element count | 1 - count | Pop count homogeneous primitive values and create a typed array |\n| ARRAY_GET | none | -1 | Pop an integer index and array; push the indexed element |\n| ARRAY_SET | none | -3 | Pop value, index, and array; mutate one element |\n| LENGTH | none | 0 | Replace a string or array with its length |\n| ARRAY_PUSH | none | -2 | Pop value and array; append the typed value |\n| ARRAY_POP | none | 0 | Pop an array and push its final element |\n| HALT | none | 0 | End the main chunk |
+| ARRAY_NEW_INT / ARRAY_NEW_FLOAT / ARRAY_NEW_BOOL / ARRAY_NEW_STRING | element count | 1 - count | Pop count homogeneous primitive values and create a typed array |
+| ARRAY_NEW_TYPED | `ElementType|Count` | 1 - count | Pop count homogeneous values of the declared recursive/nominal element type and create an array |\n| ARRAY_GET | none | -1 | Pop an integer index and array; push the indexed element |\n| ARRAY_SET | none | -3 | Pop value, index, and array; mutate one element |\n| LENGTH | none | 0 | Replace a string or array with its length |\n| ARRAY_PUSH | none | -2 | Pop value and array; append the typed value |\n| ARRAY_POP | none | 0 | Pop an array and push its final element |\n| HALT | none | 0 | End the main chunk |
 
 +1 means a value is added to the stack; -1 means a value is removed; 0 means stack height is unchanged. CALL consumes exactly the callee's arity. It pushes one result for non-void functions and no result for void functions. RETURN is valid only in function chunks; HALT is valid only in the main chunk.
 
@@ -138,12 +139,25 @@ Version 1 modules remain readable and executable if they use the original main-c
 
 ## 7. Version 4 Typed Collections
 
-Version 4 introduces homogeneous one-dimensional arrays. ARRAY_NEW_INT, ARRAY_NEW_FLOAT, ARRAY_NEW_BOOL, and ARRAY_NEW_STRING encode the element type in the opcode and the element count in the integer operand. They consume count values in source order and push one array object.
+Version 4 introduces homogeneous one-dimensional arrays of primitive values. ARRAY_NEW_INT, ARRAY_NEW_FLOAT, ARRAY_NEW_BOOL, and ARRAY_NEW_STRING encode the element type in the opcode and the element count in the integer operand. They consume count values in source order and push one array object.
 
 ARRAY_GET consumes array and index, then pushes the element. ARRAY_SET consumes array, index, and value, and performs an in-place mutation. LENGTH accepts a string or array and pushes an integer length. ARRAY_PUSH consumes array and value and appends the value. ARRAY_POP consumes an array and pushes its last element.
 
-Array values are mutable references with a fixed primitive element type. The VM validates runtime element type, zero-based index bounds, empty-pop behavior, and a configurable item-count cap. Array construction counts are verifier-bounded. Formats 1 through 3 cannot use these instructions; collection opcodes in older formats are rejected by the verifier.
+These original array values are mutable references with a fixed primitive element type. The VM validates runtime element type, zero-based index bounds, empty-pop behavior, and a configurable item-count cap. Array construction counts are verifier-bounded. Formats 1 through 3 cannot use these instructions; collection opcodes in older formats are rejected by the verifier.
 
+
+
+### Version 7 Recursive and Nominal Arrays
+
+Version 7 adds `ARRAY_NEW_TYPED`, which generalizes array construction to any supported non-void concrete value type, including nominal structs/enums and other arrays.
+
+| Opcode | Operand | Stack effect | Behavior |
+|---|---|---:|---|
+| ARRAY_NEW_TYPED | `ElementType|Count` | 1 - count | Pop count values matching the declared element type and push one homogeneous array |
+
+The element type is a recursive type name. Examples include `Point`, `int[]`, `Box_int_specialization[]`, and `Option_int_specialization[][]`. Compiler-generated generic nominal instances use deterministic internal nominal identifiers, so the serialized operand remains unambiguous. The verifier validates the element type and caps the count at 1,000,000 before stack-height analysis. The VM checks every runtime element against the declared element type, recursively validating nested arrays and nominal instance identities.
+
+The same recursive type naming is accepted in function parameter/return metadata, struct fields, enum payloads, and debugger locals in v7 modules. Versions 1–6 remain readable and executable. `ARRAY_NEW_TYPED` is rejected in versions 1–6; primitive array instructions remain valid in all versions that support collections (v4+).
 
 ### Version 6 Algebraic-Enum Instructions
 

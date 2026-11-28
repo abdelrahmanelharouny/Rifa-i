@@ -17,7 +17,7 @@ from rifai.ir.model import (
 _TERMINATORS = frozenset({Opcode.JUMP, Opcode.JUMP_IF_FALSE, Opcode.RETURN, Opcode.HALT})
 _ARRAY_NEW = frozenset({
     Opcode.ARRAY_NEW_INT, Opcode.ARRAY_NEW_FLOAT,
-    Opcode.ARRAY_NEW_BOOL, Opcode.ARRAY_NEW_STRING,
+    Opcode.ARRAY_NEW_BOOL, Opcode.ARRAY_NEW_STRING, Opcode.ARRAY_NEW_TYPED,
 })
 _UNARY = frozenset({Opcode.NEGATE, Opcode.NOT})
 _BINARY = frozenset({
@@ -406,6 +406,12 @@ class IRVerifier:
             if known and any(item != expected_element for item in input_types):
                 report(f"{opcode.value} in block {block_id} has an element type mismatch.")
             check_output(expected_element + "[]")
+        elif opcode is Opcode.ARRAY_NEW_TYPED:
+            parts = operation.operand.rsplit("|", 1) if isinstance(operation.operand, str) else ()
+            expected_element = parts[0] if len(parts) == 2 else None
+            if expected_element is not None and known and any(item != expected_element for item in input_types):
+                report(f"{opcode.value} in block {block_id} has an element type mismatch.")
+            check_output(expected_element + "[]" if expected_element is not None else None)
         elif opcode in (Opcode.ARRAY_GET, Opcode.ARRAY_SET, Opcode.ARRAY_PUSH, Opcode.ARRAY_POP):
             array_type = input_types[0] if input_types else None
             if array_type is not None and not array_type.endswith("[]"):
@@ -501,6 +507,15 @@ class IRVerifier:
             return 2, 1
         if opcode in (Opcode.POP, Opcode.PRINT):
             return 1, 0
+        if opcode is Opcode.ARRAY_NEW_TYPED:
+            parts = operation.operand.rsplit("|", 1) if isinstance(operation.operand, str) else ()
+            if (
+                len(parts) != 2 or not parts[0]
+                or not parts[1].isdigit() or int(parts[1]) > 1_000_000
+            ):
+                report("ARRAY_NEW_TYPED has an invalid element type or count.")
+                return None, 1
+            return int(parts[1]), 1
         if opcode in _ARRAY_NEW:
             if type(operation.operand) is not int or operation.operand < 0:
                 report("array constructor has an invalid element count.")

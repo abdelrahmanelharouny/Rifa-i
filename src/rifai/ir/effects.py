@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from rifai.bytecode.instructions import Opcode
-from rifai.ir.model import IRModule
+from rifai.ir.model import IROperation, IRModule
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,6 +135,49 @@ class IRSideEffectAnalysis:
             commonable=opcode in self._COMMONABLE,
         )
 
+
+    @staticmethod
+    def is_speculatable(
+        operation: IROperation,
+        value_types: dict[int, str | None],
+    ) -> bool:
+        """Require complete, valid static input types before moving an op."""
+        if operation.opcode is Opcode.CONSTANT:
+            return not operation.inputs
+        input_types = tuple(value_types.get(item) for item in operation.inputs)
+        if not input_types or any(item is None for item in input_types):
+            return False
+        if operation.opcode is Opcode.NOT:
+            return input_types == ("bool",)
+        if operation.opcode in (Opcode.AND, Opcode.OR):
+            return input_types == ("bool", "bool")
+        if operation.opcode in (Opcode.EQUAL, Opcode.NOT_EQUAL):
+            return (
+                len(input_types) == 2
+                and input_types[0] == input_types[1]
+                and input_types[0] in ("int", "float", "bool", "string")
+            )
+        if operation.opcode in (
+            Opcode.LESS, Opcode.LESS_EQUAL, Opcode.GREATER, Opcode.GREATER_EQUAL,
+        ):
+            return (
+                len(input_types) == 2
+                and input_types[0] == input_types[1]
+                and input_types[0] in ("int", "float")
+            )
+        return False
+
+    @classmethod
+    def is_removable_if_dead(
+        cls,
+        operation: IROperation,
+        value_types: dict[int, str | None],
+    ) -> bool:
+        """A dead result is removable only when its operation is total."""
+        return (
+            cls().effects(operation.opcode).removable_if_dead
+            and cls.is_speculatable(operation, value_types)
+        )
     def analyze(self, module: IRModule) -> IRSideEffectSummary:
         """Aggregate effect information across all functions in a module."""
         operations = [

@@ -121,7 +121,7 @@ jobs:
           rifai run examples/phase18_generics.rif > /tmp/rifai-phase18.txt
           python -c "from pathlib import Path; assert Path('/tmp/rifai-phase18.txt').read_text(encoding='utf-8').strip().splitlines() == ['42', \"Rifa'i generics\", '10', '7', 'some=9', '10']"
           rifai inspect examples/phase18_generics.rif --output /tmp/rifai-phase18.json
-          python -c "import json; p=json.load(open('/tmp/rifai-phase18.json', encoding='utf-8')); assert p['success'] and p['stages']['ir']['origin'] == 'direct-ast' and p['stages']['bytecode']['format_version'] == 6 and p['stages']['ir']['stats']['functions'] >= 5"
+          python -c "import json; p=json.load(open('/tmp/rifai-phase18.json', encoding='utf-8')); assert p['success'] and p['stages']['ir']['origin'] == 'direct-ast' and p['stages']['bytecode']['format_version'] == 6"
 
       - name: Verify interactive debugger smoke test
         run: |

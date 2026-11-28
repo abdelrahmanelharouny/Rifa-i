@@ -219,6 +219,82 @@ class IRPassResult:
     stats: IRPassStats
 
 
+def _prune_folded_constant_materializations(function: IRFunction, blocks: list) -> list:
+    """Remove same-block constants whose only remaining use is a fold POP.
+
+    The IR-to-stack-bytecode lowerer emits operations in order. A folded
+    operation therefore consumes its original stack operands with explicit
+    POP operations before materializing the folded constant. When an operand
+    is a same-block CONSTANT used nowhere else, both its push and matching POP
+    are redundant. Repeating this rule also collapses nested folded trees.
+    Block parameters and values used across CFG edges are deliberately kept.
+    """
+    current = blocks
+    while True:
+        uses: dict[int, int] = {}
+        definitions: dict[tuple[int, int], int] = {}
+
+        for block_index, block in enumerate(current):
+            for operation_index, operation in enumerate(block.operations):
+                for value_id in operation.inputs:
+                    uses[value_id] = uses.get(value_id, 0) + 1
+                for output in operation.outputs:
+                    definitions[(block.block_id, output.value_id)] = operation_index
+
+            term = block.terminator
+            if isinstance(term, IRJump):
+                values = term.arguments
+            elif isinstance(term, IRBranch):
+                values = (
+                    term.condition,
+                    *term.false_arguments,
+                    *term.true_arguments,
+                )
+            elif isinstance(term, IRReturn) and term.value is not None:
+                values = (term.value,)
+            else:
+                values = ()
+            for value_id in values:
+                uses[value_id] = uses.get(value_id, 0) + 1
+
+        rewritten = []
+        removed_any = False
+        for block in current:
+            operations = block.operations
+            remove_positions: set[int] = set()
+            for pop_index, operation in enumerate(operations):
+                if operation.opcode is not Opcode.POP or len(operation.inputs) != 1:
+                    continue
+                value_id = operation.inputs[0]
+                definition_index = definitions.get((block.block_id, value_id))
+                if definition_index is None or uses.get(value_id) != 1:
+                    continue
+                definition = operations[definition_index]
+                if (
+                    definition.opcode is Opcode.CONSTANT
+                    and len(definition.outputs) == 1
+                    and definition.outputs[0].value_id == value_id
+                ):
+                    remove_positions.update((definition_index, pop_index))
+            if remove_positions:
+                removed_any = True
+                rewritten.append(
+                    replace(
+                        block,
+                        operations=tuple(
+                            operation
+                            for index, operation in enumerate(operations)
+                            if index not in remove_positions
+                        ),
+                    )
+                )
+            else:
+                rewritten.append(block)
+        if not removed_any:
+            return current
+        current = rewritten
+
+
 class IRConstantPropagationPass:
     """Fold scalar operations from constants, including constants at CFG joins."""
     name = "ir-constant-propagation"
@@ -268,6 +344,7 @@ class IRConstantPropagationPass:
                             folded += 1
                     operations.append(replacement)
                 blocks.append(replace(block, operations=tuple(operations)))
+            blocks = _prune_folded_constant_materializations(function, blocks)
             functions.append(replace(function, blocks=tuple(blocks)))
         return (replace(module, constants=tuple(constants), main=functions[0],
                         functions=tuple(functions[1:])), folded, propagated)

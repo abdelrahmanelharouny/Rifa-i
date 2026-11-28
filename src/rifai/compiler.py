@@ -1,14 +1,13 @@
-"""End-to-end Rifa'i source compilation pipeline."""
+"""End-to-end Rifa'i source compilation through the direct IR pipeline."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from rifai.bytecode.codegen import CodeGenerator
 from rifai.bytecode.module import BytecodeModule
 from rifai.bytecode.optimizer import BytecodeOptimizer, OptimizationStats
 from rifai.bytecode.verifier import BytecodeVerifier
-from rifai.errors.diagnostics import Diagnostic
+from rifai.errors.diagnostics import Diagnostic, DiagnosticPhase
 from rifai.frontend.lexer import Lexer
 from rifai.frontend.parser import Parser
 from rifai.frontend.semantic import SemanticAnalyzer
@@ -20,7 +19,7 @@ from rifai.ir.passes import IRPassStats
 
 @dataclass(frozen=True, slots=True)
 class CompilationResult:
-    """Result of running every frontend and bytecode-generation phase."""
+    """Result of running the Rifa'i frontend, direct IR pipeline, and backend."""
 
     module: BytecodeModule | None
     diagnostics: tuple[Diagnostic, ...]
@@ -29,19 +28,21 @@ class CompilationResult:
     ir_module: IRModule | None = None
     ir_stats: IRPassStats | None = None
     ir_analysis: IRAnalysis | None = None
+    ir_origin: str = "direct-ast"
 
     @property
     def is_success(self) -> bool:
+        """Return True when verified bytecode was successfully produced."""
         return self.module is not None and not self.diagnostics
 
 
 class Compiler:
-    """Compile Rifa'i source text into verified bytecode.
+    """Compile Rifa'i source text through AST -> IR -> verified bytecode.
 
-    Optimization is enabled by default. Compiler(optimize=False) disables both
-    bytecode and IR optimization while retaining IR verification/analysis.
-    Set ir_optimize=True to explicitly enable only the IR optimizer, which is
-    useful for isolating and evaluating Phase 12 transformations.
+    The source compiler now creates IR directly from the semantically-bound AST.
+    Compiler(optimize=False) disables both IR and target-bytecode optimizations
+    while preserving verification and analysis. Set ir_optimize=True to
+    explicitly enable the IR pass manager while leaving backend optimization off.
     """
 
     def __init__(
@@ -71,42 +72,53 @@ class Compiler:
         if not semantic_result.is_valid:
             return CompilationResult(None, semantic_result.diagnostics)
 
-        generation = CodeGenerator().generate(
-            parse_result.program,
-            semantic_result,
-            source_name=source_name,
-            source_text=source,
-        )
-        if not generation.is_success or generation.module is None:
-            return CompilationResult(None, generation.diagnostics)
+        try:
+            ir_result = IRPipeline().run_ast(
+                parse_result.program,
+                semantic_result,
+                source_name=source_name,
+                source_text=source,
+                optimize=self.ir_optimize,
+            )
+        except (TypeError, ValueError, RuntimeError, KeyError, IndexError) as exc:
+            diagnostic = Diagnostic(
+                phase=DiagnosticPhase.BYTECODE,
+                message=f"Direct AST-to-IR compilation failed: {exc}",
+                line=1,
+                column=1,
+            )
+            return CompilationResult(None, (diagnostic,), ir_origin="direct-ast")
 
-        module = generation.module
+        module = ir_result.bytecode_module
         optimization: OptimizationStats | None = None
+
+        # Keep the stack-machine cleanup pass as a backend-specific stage. All
+        # language-level lowering and data-flow optimizations now happen in IR.
         if self.optimize:
             optimized = BytecodeOptimizer().optimize(module)
             module = optimized.module
             optimization = optimized.stats
 
-        # IR is the verified hand-off layer between source-oriented code
-        # generation/optimization and the final bytecode backend.
-        ir_result = IRPipeline().run(module, optimize=self.ir_optimize)
-        module = ir_result.bytecode_module
-
         validation = BytecodeVerifier().verify(module)
         if not validation.is_valid:
             return CompilationResult(
-                None, validation.diagnostics, optimization,
+                None,
+                validation.diagnostics,
+                optimization,
                 ir_module=ir_result.ir_module,
                 ir_stats=ir_result.stats,
                 ir_analysis=ir_result.analysis,
+                ir_origin=ir_result.source_kind,
             )
-        symbols = module.debug_info.as_mapping() if module.debug_info else generation.debug_symbols
+
+        symbols = module.debug_info.as_mapping() if module.debug_info else {}
         return CompilationResult(
-            module,
-            (),
-            optimization,
-            symbols,
-            ir_result.ir_module,
-            ir_result.stats,
-            ir_result.analysis,
+            module=module,
+            diagnostics=(),
+            optimization=optimization,
+            debug_symbols=symbols,
+            ir_module=ir_result.ir_module,
+            ir_stats=ir_result.stats,
+            ir_analysis=ir_result.analysis,
+            ir_origin=ir_result.source_kind,
         )

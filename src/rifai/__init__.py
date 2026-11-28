@@ -27,6 +27,7 @@ from rifai.bytecode import (
 )
 from rifai.compiler import CompilationResult, Compiler
 from rifai.ir import (
+    ASTToIR,
     BytecodeToIR,
     IRAnalysis,
     IRAnalyzer,
@@ -72,7 +73,7 @@ from rifai.vm import (
     VMRuntimeError,
 )
 
-__version__ = "0.13.0"
+__version__ = "0.14.0"
 
 __all__ = [
     "BasicBlock",
@@ -82,6 +83,7 @@ __all__ = [
     "optimize_module_dataflow",
     "analyze_module_control_flow",
     "build_control_flow_graph",
+    "ASTToIR",
     "BytecodeToIR",
     "IRAnalysis",
     "IRAnalyzer",

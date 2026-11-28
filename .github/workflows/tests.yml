@@ -73,6 +73,15 @@ jobs:
           python -c "import json; p=json.load(open('/tmp/rifai-phase12.json', encoding='utf-8')); s=p['stages']['ir_pipeline']; assert p['success'] and s['constant_folds'] == 0"
           python -c "from pathlib import Path; from rifai import Compiler; p=Path('examples/phase12_ir_optimization.rif'); r=Compiler(optimize=False, ir_optimize=True).compile(p.read_text(encoding='utf-8')); s=r.ir_stats; assert r.is_success and s.constant_folds >= 2 and s.branches_simplified == 1 and s.blocks_removed >= 1"
 
+      - name: Validate Phase 13 direct AST-to-IR compilation
+        run: |
+          rifai check examples/phase13_direct_ast_to_ir.rif
+          rifai run examples/phase13_direct_ast_to_ir.rif > /tmp/rifai-phase13.txt
+          python -c "from pathlib import Path; assert Path('/tmp/rifai-phase13.txt').read_text(encoding='utf-8').strip().splitlines() == ['12', '65']"
+          rifai inspect examples/phase13_direct_ast_to_ir.rif --output /tmp/rifai-phase13.json
+          python -c "import json; p=json.load(open('/tmp/rifai-phase13.json', encoding='utf-8')); s=p['stages']; assert p['success'] and s['ir']['origin'] == 'direct-ast' and s['ir']['stats']['functions'] == 1 and s['ir']['stats']['blocks'] > 0 and s['bytecode']['format_version'] == 4"
+          python -c "from pathlib import Path; from rifai import Compiler; p=Path('examples/phase13_direct_ast_to_ir.rif'); r=Compiler(optimize=False).compile(p.read_text(encoding='utf-8')); assert r.is_success and r.ir_origin == 'direct-ast' and r.module.debug_info.source_text == p.read_text(encoding='utf-8')"
+
       - name: Verify interactive debugger smoke test
         run: |
           printf '%s\n' continue continue | rifai debug examples/phase7_debugger.rif --breakpoint 4 > /tmp/rifai-debug.txt

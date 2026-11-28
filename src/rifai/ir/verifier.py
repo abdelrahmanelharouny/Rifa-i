@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from rifai.bytecode.instructions import Opcode, SourceLocation
 from rifai.bytecode.module import is_constant
 from rifai.ir.analysis import IRAnalyzer
+from rifai.stdlib import BUILTIN_ARITIES
 from rifai.ir.model import (
     IRBranch, IRFunction, IRHalt, IRJump, IRModule, IROperation, IRReturn,
     IRValue,
@@ -431,6 +432,21 @@ class IRVerifier:
                 for index, expected in enumerate(target.parameter_types):
                     check_input(index, expected)
                 check_output(target.return_type if target.return_type != "void" else None)
+            elif operation.operand in BUILTIN_ARITIES:
+                # Built-in signatures are checked by the semantic analyzer;
+                # runtime validation remains mandatory for serialized bytecode.
+                pass
+        elif opcode is Opcode.STRUCT_NEW:
+            type_name = operation.operand.split("|", 1)[0] if isinstance(operation.operand, str) else None
+            check_output(type_name)
+        elif opcode is Opcode.ENUM_NEW:
+            type_name = operation.operand.split(".", 1)[0] if isinstance(operation.operand, str) else None
+            check_output(type_name)
+        elif opcode in (Opcode.FIELD_GET, Opcode.FIELD_SET):
+            if input_types and input_types[0] is not None and input_types[0] in {
+                "int", "float", "bool", "string"
+            }:
+                report(f"{opcode.value} in block {block_id} requires a struct value.")
 
     @staticmethod
     def _operation_shape(module, operation, functions, report):
@@ -479,9 +495,23 @@ class IRVerifier:
             return 1, 1
         if opcode is Opcode.CALL:
             target = functions.get(operation.operand) if isinstance(operation.operand, str) else None
-            if target is None:
-                report(f"CALL references unknown function {operation.operand!r}.")
-                return None, None
-            return target.arity, 1 if target.return_type != "void" else 0
+            if target is not None:
+                return target.arity, 1 if target.return_type != "void" else 0
+            if operation.operand in BUILTIN_ARITIES:
+                return BUILTIN_ARITIES[operation.operand], 1
+            report(f"CALL references unknown function {operation.operand!r}.")
+            return None, None
+        if opcode in (Opcode.STRUCT_NEW, Opcode.ENUM_NEW):
+            if not isinstance(operation.operand, str) or not operation.operand:
+                report(f"{opcode.value} requires a string type operand.")
+            return 0, 1
+        if opcode is Opcode.FIELD_GET:
+            if not isinstance(operation.operand, str) or not operation.operand:
+                report("FIELD_GET requires a field name.")
+            return 1, 1
+        if opcode is Opcode.FIELD_SET:
+            if not isinstance(operation.operand, str) or not operation.operand:
+                report("FIELD_SET requires a field name.")
+            return 2, 0
         report(f"unsupported IR operation {opcode!r}.")
         return None, None

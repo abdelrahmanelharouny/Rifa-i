@@ -22,11 +22,11 @@ class IRToBytecode:
                 "Cannot lower invalid IR: " + "; ".join(ir_validation.diagnostics[:3])
             )
 
-        main = (self._lower_materialized(module.main) if module.requires_materialized_values else self._lower_function(module.main))
+        main = self._lower_function_selected(module.main, module.requires_materialized_values)
         functions = tuple(
             BytecodeFunction(
                 name=function.name,
-                chunk=(self._lower_materialized(function) if module.requires_materialized_values else self._lower_function(function)),
+                chunk=self._lower_function_selected(function, module.requires_materialized_values),
                 parameter_types=function.parameter_types,
                 return_type=function.return_type,
             )
@@ -45,6 +45,19 @@ class IRToBytecode:
             messages = "; ".join(item.message for item in validation.diagnostics[:3])
             raise RuntimeError(f"IR lowering produced invalid bytecode: {messages}")
         return bytecode
+
+    @classmethod
+    def _lower_function_selected(
+        cls,
+        function: IRFunction,
+        module_requires_materialization: bool,
+    ) -> CodeChunk:
+        if (
+            module_requires_materialization
+            and cls._requires_materialized_values(function)
+        ):
+            return cls._lower_materialized(function)
+        return cls._lower_function(function)
 
     @staticmethod
     def _requires_materialized_values(function: IRFunction) -> bool:

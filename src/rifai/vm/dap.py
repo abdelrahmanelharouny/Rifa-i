@@ -550,7 +550,17 @@ class RifaIDebugAdapter:
     def _worker_main(self) -> None:
         exit_code = 0
         try:
-            execution = VirtualMachine().execute(
+            file_root = (
+                self._source_path.resolve().parent
+                if self._source_path is not None
+                else self._program_path.resolve().parent
+                if self._program_path is not None
+                else None
+            )
+            execution = VirtualMachine(
+                allow_file_io=file_root is not None,
+                file_root=file_root,
+            ).execute(
                 self._module,
                 on_instruction=self._on_instruction,
                 debug_symbols=self._debug_symbols,

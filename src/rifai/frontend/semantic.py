@@ -1103,7 +1103,7 @@ class SemanticAnalyzer:
                 return RifaiType.ERROR
             if (
                 not is_error_type(argument_types[1])
-                and argument_types[1] is not element_type
+                and argument_types[1] != element_type
             ):
                 self._error(
                     expr.arguments[1].span,

@@ -499,14 +499,14 @@ class ASTToIR:
 
     def _compile_statement(self, statement: Statement) -> None:
         if isinstance(statement, VariableDeclaration):
-            value = self._compile_expression(statement.initializer)
+            value = self._compile_value(statement.initializer)
             self._store(self._variable_symbol(statement), value, statement.span)
         elif isinstance(statement, AssignmentStatement):
-            value = self._compile_expression(statement.value)
+            value = self._compile_value(statement.value)
             self._store(self._variable_symbol(statement), value, statement.span)
         elif isinstance(statement, IndexAssignmentStatement):
-            array = self._compile_expression(statement.array)
-            index = self._compile_expression(statement.index)
+            array = self._compile_value(statement.array)
+            index = self._compile_value(statement.index)
             value = self._compile_expression(statement.value)
             self._emit(
                 Opcode.ARRAY_SET,
@@ -521,24 +521,26 @@ class ASTToIR:
             self._compile_while(statement)
         elif isinstance(statement, ReturnStatement):
             value = (
-                self._compile_expression(statement.value)
+                self._compile_value(statement.value)
                 if statement.value is not None
                 else None
             )
             self._terminate(IRReturn(value, self._location(statement.span)))
             self._set_current(None)
         elif isinstance(statement, PrintStatement):
-            value = self._compile_expression(statement.expression)
+            value = self._compile_value(statement.expression)
             self._emit(Opcode.PRINT, (value,), span=statement.span)
         elif isinstance(statement, ExpressionStatement):
             value = self._compile_expression(statement.expression)
             if self._type_of(statement.expression) != "void":
+                if value is None:
+                    raise ValueError("A value-producing expression did not produce a value.")
                 self._emit(Opcode.POP, (value,), span=statement.span)
         elif isinstance(statement, FunctionDeclaration):
             raise ValueError("Nested function declarations are not supported.")
 
     def _compile_if(self, statement: IfStatement) -> None:
-        condition = self._compile_expression(statement.condition)
+        condition = self._compile_value(statement.condition)
         then_id = self._new_block()
         else_id = (
             self._new_block()
@@ -623,7 +625,13 @@ class ASTToIR:
             )
         self._set_current(exit_id)
 
-    def _compile_expression(self, expression: Expression) -> int:
+    def _compile_value(self, expression: Expression) -> int:
+        value = self._compile_expression(expression)
+        if value is None:
+            raise ValueError(f"Expression '{type(expression).__name__}' has no value.")
+        return value
+
+    def _compile_expression(self, expression: Expression) -> int | None:
         result_type = self._type_of(expression)
 
         if isinstance(expression, LiteralExpression):
@@ -636,10 +644,10 @@ class ASTToIR:
         elif isinstance(expression, VariableExpression):
             result = self._load(self._variable_symbol(expression), expression.span)
         elif isinstance(expression, GroupingExpression):
-            return self._compile_expression(expression.expression)
+            return self._compile_value(expression.expression)
         elif isinstance(expression, ArrayLiteralExpression):
             values = tuple(
-                self._compile_expression(item)
+                self._compile_value(item)
                 for item in expression.elements
             )
             opcode = _ARRAY_CONSTRUCTORS.get(result_type)
@@ -653,8 +661,8 @@ class ASTToIR:
                 span=expression.span,
             )
         elif isinstance(expression, IndexExpression):
-            array = self._compile_expression(expression.array)
-            index = self._compile_expression(expression.index)
+            array = self._compile_value(expression.array)
+            index = self._compile_value(expression.index)
             result = self._emit(
                 Opcode.ARRAY_GET,
                 (array, index),
@@ -662,7 +670,7 @@ class ASTToIR:
                 span=expression.span,
             )
         elif isinstance(expression, UnaryExpression):
-            operand = self._compile_expression(expression.operand)
+            operand = self._compile_value(expression.operand)
             opcode = (
                 Opcode.NEGATE
                 if expression.operator.token_type is TokenType.MINUS
@@ -675,8 +683,8 @@ class ASTToIR:
                 span=expression.span,
             )
         elif isinstance(expression, BinaryExpression):
-            left = self._compile_expression(expression.left)
-            right = self._compile_expression(expression.right)
+            left = self._compile_value(expression.left)
+            right = self._compile_value(expression.right)
             opcode = _BINARY_OPCODES.get(expression.operator.token_type)
             if opcode is None:
                 raise ValueError(
@@ -690,7 +698,7 @@ class ASTToIR:
             )
         elif isinstance(expression, FunctionCallExpression):
             arguments = tuple(
-                self._compile_expression(item)
+                self._compile_value(item)
                 for item in expression.arguments
             )
             if expression.callee == "len":
@@ -733,7 +741,7 @@ class ASTToIR:
                 f"Unsupported expression node '{type(expression).__name__}'."
             )
 
-        if result is None:
+        if result is None and result_type != "void":
             raise ValueError(
                 f"Expression '{type(expression).__name__}' did not produce a value."
             )

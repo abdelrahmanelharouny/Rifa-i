@@ -869,14 +869,17 @@ class ASTToIR:
                 self._compile_value(item)
                 for item in expression.elements
             )
-            opcode = _ARRAY_CONSTRUCTORS.get(result_type)
-            if opcode is None:
-                raise ValueError(f"Unsupported array type '{result_type}'.")
+            opcode = _ARRAY_CONSTRUCTORS.get(result_type, Opcode.ARRAY_NEW_TYPED)
+            operand = (
+                len(values)
+                if opcode is not Opcode.ARRAY_NEW_TYPED
+                else result_type[:-2] + "|" + str(len(values))
+            )
             result = self._emit(
                 opcode,
                 values,
                 output_type=result_type,
-                operand=len(values),
+                operand=operand,
                 span=expression.span,
             )
         elif isinstance(expression, IndexExpression):

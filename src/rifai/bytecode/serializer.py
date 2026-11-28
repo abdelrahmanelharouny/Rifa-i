@@ -302,8 +302,10 @@ class BytecodeSerializer:
     """Encode and decode bytecode versions 1 through 5.
 
     Version 1 stores a main chunk, version 2 adds function chunks, version 3
-    adds optional embedded debug metadata, version 4 adds typed arrays, and
-    version 5 adds nominal struct/enum operations, and version 6 adds algebraic enum payloads. Older versions remain readable.
+    adds optional embedded debug metadata, version 4 adds primitive typed arrays,
+    version 5 adds nominal struct/enum operations, version 6 adds algebraic enum
+    payloads, and version 7 adds recursive and nominal typed arrays. Older
+    versions remain readable.
     """
 
     @staticmethod

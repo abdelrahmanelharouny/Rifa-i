@@ -7,7 +7,7 @@ from enum import Enum
 
 
 class Opcode(str, Enum):
-    """Version 4 bytecode instructions supported by the Rifa'i VM."""
+    """Version 5 bytecode instructions supported by the Rifa'i VM."""
 
     CONSTANT = "CONSTANT"
     POP = "POP"

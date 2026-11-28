@@ -5,6 +5,7 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import dataclass, replace
 from hashlib import sha256
+import re
 
 from rifai.errors.diagnostics import Diagnostic, DiagnosticPhase
 from rifai.frontend.ast_nodes import (

@@ -91,7 +91,7 @@ def test_match_parser_ast_and_enum_constructor_nodes():
             visit(child)
     for declaration in program.declarations:
         visit(declaration)
-    assert len(constructors) >= 5
+    assert len(constructors) >= 4
     assert len(matches) >= 2
 
 

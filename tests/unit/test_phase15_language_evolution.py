@@ -289,8 +289,10 @@ let point = Point(3, 4);
 print(point.x + point.y);
 """
     result = _compile(source)
-    restored = BytecodeSerializer.from_bytes(BytecodeSerializer.to_bytes(result.module))
-    assert restored == result.module
+    from dataclasses import replace
+    bytecode_v5 = replace(result.module, format_version=5)
+    restored = BytecodeSerializer.from_bytes(BytecodeSerializer.to_bytes(bytecode_v5))
+    assert restored == bytecode_v5
     assert VirtualMachine().execute(restored).output == ("7",)
 
     from rifai.bytecode import CodeChunk, Instruction, Opcode

@@ -197,6 +197,33 @@ class WhileStatement(Statement):
 
 
 @dataclass(frozen=True, slots=True)
+class ForStatement(Statement):
+    """C-style for loop with optional initializer, condition, and update clause."""
+
+    initializer: Statement | None
+    condition: Expression | None
+    increment: Statement | None
+    body: BlockStatement
+    span: SourceSpan
+
+
+@dataclass(frozen=True, slots=True)
+class BreakStatement(Statement):
+    """Exit the innermost enclosing loop."""
+
+    keyword: Token
+    span: SourceSpan
+
+
+@dataclass(frozen=True, slots=True)
+class ContinueStatement(Statement):
+    """Continue at the update/condition point of the innermost loop."""
+
+    keyword: Token
+    span: SourceSpan
+
+
+@dataclass(frozen=True, slots=True)
 class ReturnStatement(Statement):
     """Return statement with optional return expression."""
 
@@ -340,6 +367,12 @@ def _node_label(node: ASTNode) -> str:
         return "IfStatement"
     if isinstance(node, WhileStatement):
         return "WhileStatement"
+    if isinstance(node, ForStatement):
+        return "ForStatement"
+    if isinstance(node, BreakStatement):
+        return "BreakStatement"
+    if isinstance(node, ContinueStatement):
+        return "ContinueStatement"
     if isinstance(node, ReturnStatement):
         return "ReturnStatement"
     if isinstance(node, PrintStatement):
@@ -394,6 +427,18 @@ def _node_children(node: ASTNode) -> list[tuple[str | None, ASTNode]]:
         return children
     if isinstance(node, WhileStatement):
         return [("condition", node.condition), ("body", node.body)]
+    if isinstance(node, ForStatement):
+        children: list[tuple[str | None, ASTNode]] = []
+        if node.initializer is not None:
+            children.append(("initializer", node.initializer))
+        if node.condition is not None:
+            children.append(("condition", node.condition))
+        if node.increment is not None:
+            children.append(("increment", node.increment))
+        children.append(("body", node.body))
+        return children
+    if isinstance(node, (BreakStatement, ContinueStatement)):
+        return []
     if isinstance(node, ReturnStatement):
         return [("value", node.value)] if node.value is not None else []
     if isinstance(node, PrintStatement):

@@ -63,6 +63,16 @@ def _valid_type_name(value: str, allow_nominal: bool) -> bool:
     )
 
 
+def _valid_versioned_type_name(value: str, supports_nominal: bool, supports_generic: bool) -> bool:
+    if value == "void":
+        return False
+    if value in _ALLOWED_VALUE_TYPES:
+        return True
+    if supports_generic and value.endswith("[]"):
+        return _valid_type_name(value, allow_nominal=True)
+    return supports_nominal and _is_nominal_type_name(value)
+
+
 def _valid_struct_schema(value: str) -> bool:
     if len(value) > 4096 or "|" not in value:
         return False
@@ -296,7 +306,7 @@ class BytecodeVerifier:
                                 seen_slots.add(symbol.slot)
                             if not isinstance(symbol.name, str) or not symbol.name:
                                 report(f"Debug local in '{chunk_name}' has an invalid name.")
-                            if not isinstance(symbol.type_name, str) or not _valid_type_name(symbol.type_name, supports_nominal_types):
+                            if not isinstance(symbol.type_name, str) or not _valid_versioned_type_name(symbol.type_name, supports_nominal_types, supports_generic_types):
                                 report(f"Debug local in '{chunk_name}' has an invalid type.")
                             elif not supports_collections and symbol.type_name.endswith("[]"):
                                 report(
@@ -325,7 +335,7 @@ class BytecodeVerifier:
             parameter_types_valid = (
                 isinstance(function.parameter_types, tuple)
                 and all(
-                    isinstance(item, str) and _valid_type_name(item, supports_nominal_types)
+                    isinstance(item, str) and _valid_versioned_type_name(item, supports_nominal_types, supports_generic_types)
                     for item in function.parameter_types
                 )
             )
@@ -333,9 +343,12 @@ class BytecodeVerifier:
                 report(f"Function '{function.name}' has invalid parameter types.")
             return_type_valid = (
                 isinstance(function.return_type, str)
-                and (function.return_type in _ALLOWED_RETURN_TYPES or (
-                    supports_nominal_types and _is_nominal_type_name(function.return_type)
-                ))
+                and (
+                    function.return_type == "void"
+                    or _valid_versioned_type_name(
+                        function.return_type, supports_nominal_types, supports_generic_types
+                    )
+                )
             )
             if not return_type_valid:
                 report(f"Function '{function.name}' has an invalid return type.")

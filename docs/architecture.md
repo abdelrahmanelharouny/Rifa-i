@@ -17,24 +17,20 @@ Rifa'i is a statically typed language implemented in Python. Its compiler transl
   Semantic Analyzer ---------------- Phase 2
       | type information + exact symbol bindings
       v
-  AST-to-Bytecode Code Generator ---- Phase 4
-      | provisional main/function chunks
+  Direct AST-to-IR Lowerer ---------- Phase 13
+      | typed virtual values + explicit control-flow blocks
       v
-  Bytecode Optimizer ---------------- Phases 5/10
-      | constant/data-flow optimizations
+  IR Multi-Pass Manager ------------- Phases 11/12
+      | verify + optimize + canonicalize + analyze
       v
-  Bytecode-to-IR Lifter ------------- Phase 11
-      | typed virtual values + block parameters
-      v
-  IR Multi-Pass Manager ------------- Phase 11
-      | verify + canonical numbering + dominators
-      v
-  IR-to-Bytecode Lowerer ------------ Phase 11
+  IR-to-Bytecode Lowerer ------------ Phases 11/13
       | verified stack-bytecode module
       v
-  Bytecode Verifier ---------------- Phase 3/4/5/11
-      | validated control flow and stack effects
+  Bytecode Backend Optimizer -------- Phases 5/10
+      | target-specific cleanup and constant-pool compaction
       v
+  Bytecode Verifier ---------------- Phases 3/4/5/11/13
+
   Bytecode Serializer -------------- Phase 3/5
       | versioned .rbc module
       v
@@ -44,7 +40,7 @@ Rifa'i is a statically typed language implemented in Python. Its compiler transl
   Program result
 ```
 
-Compiler.compile() orchestrates the frontend, code generator, optional bytecode optimizer, IR lift/pass/lower pipeline, and final verifier. It stops at the first failing phase and returns structured diagnostics. Both IR and the lowered bytecode are verified before a successful compilation result is exposed. The current IR integration is a deliberate migration seam: the existing AST code generator remains stable while later front-end/backend work can move directly onto IR.
+Compiler.compile() now orchestrates the frontend, direct AST-to-IR lowering, IR verification/optimization/analysis, IR-to-bytecode lowering, optional target-specific bytecode cleanup, and final bytecode verification. It stops at the first failing phase and returns structured diagnostics. The normal source-compilation path no longer generates bytecode as an intermediate input to IR. BytecodeToIR remains available for lifting existing verified modules, compatibility checks, and round-trip tooling.
 
 ## 2. Package Layout
 
@@ -55,7 +51,8 @@ Compiler.compile() orchestrates the frontend, code generator, optional bytecode 
 - rifai/bytecode/codegen.py: AST-to-bytecode generation using SemanticResult bindings.
 - rifai/bytecode/optimizer.py: Semantics-preserving constant folding, no-op cleanup, and constant-pool compaction.
 - rifai/bytecode/cfg.py: Deterministic basic-block construction, control-flow edges, and entry-reachability analysis.
-- rifai/ir/: Typed explicit-value IR models, bytecode lifting/lowering, IR verification, canonical value numbering, dominator analysis, and the pass manager.
+- rifai/ir/ast_to_ir.py: Direct source-AST-to-IR lowering using semantic bindings, typed local slots, explicit basic blocks, and source locations.
+- rifai/ir/: Typed explicit-value IR models, compatibility bytecode lifting, IR verification, canonical value numbering, dominator analysis, and the pass manager.
 - rifai/bytecode/verifier.py: Operand validation, source-map validation, module limits, and per-chunk control-flow stack analysis.
 - rifai/bytecode/serializer.py: Deterministic versioned .rbc serialization and atomic file writes.
 - rifai/bytecode/disassembler.py: Readable listing of constants, main instructions, and functions.
@@ -66,13 +63,13 @@ Compiler.compile() orchestrates the frontend, code generator, optional bytecode 
 
 ## 3. Code Generation
 
-The generator receives the exact Program object and corresponding SemanticResult. It consumes identity-keyed semantic bindings for variable declarations, assignments, variable references, function declarations, and function calls. It does not redo scope lookup or infer types.
+ASTToIR receives the exact Program object and corresponding SemanticResult. It consumes identity-keyed semantic bindings for declarations, assignments, variable references, function declarations, and function calls. It does not redo scope lookup or infer source types.
 
-Global variables use named global slots. Variables in function scopes and nested lexical blocks use deterministic zero-based local slots within the active code chunk. Distinct shadowed declarations receive distinct slots, so the nearest lexical binding remains the one selected by semantic analysis.
+Each function and the main program receive deterministic local-slot maps. Parameters occupy the first slots, declarations in nested lexical scopes receive distinct slots, and globals remain named global operations. This preserves shadowing and debugger-visible local names without coupling the IR builder to a second name-resolution pass.
 
-The generator emits constants into a deduplicated typed constant pool, arithmetic/comparison/equality/logical instructions, local/global loads and stores, conditional and unconditional jumps for if/else-if/while, one function chunk per top-level function, CALL and RETURN instructions, and source locations on emitted instructions.
+Expressions become typed virtual values and explicit-input operations. If/else-if and while statements become explicit basic blocks and terminators. Since source variables are represented by local/global loads and stores, transient expression values are block-local and control-flow edges do not need to carry hidden operand-stack state. Every operation and terminator retains its source location. The existing bytecode CodeGenerator remains available as a compatibility/reference API, but Compiler.compile() uses ASTToIR.
 
-Logical and/or retain the language's eager evaluation semantics in version 1. The generator evaluates left then right operands before the logical opcode.
+Logical and/or retain eager evaluation semantics in version 1: the left operand is evaluated before the right operand and the logical opcode.
 
 ## 4. Function Calls and VM Frames
 
@@ -91,9 +88,9 @@ The serializer writes version 2 by default and continues to read version 1. The 
 
 ## 6. Optimization
 
-Optimization runs after code generation and before the final bytecode verification. The conservative pass folds pure constant unary/binary operations when the result is finite and within compile-time folding bounds. It removes unused constants and deduplicates by exact type and value, preserving the distinction between values such as `true` and `1`. It also removes the neutral `DUP; POP` sequence.
+Optimization is layered. The IR pass manager performs source-independent, typed scalar constant propagation/folding, constant-branch simplification, and unreachable-block removal before lowering. The bytecode optimizer then performs target-specific cleanup: conservative instruction folding, typed constant-pool deduplication/compaction, and safe stack-neutral no-op removal.
 
-The pass compacts folded expressions and no-op pairs, then remaps absolute jump targets to the compacted instruction indices. It refuses to fold a range if a jump enters its interior, and it keeps a DUP/POP pair when either instruction is a jump target. Division/modulo by zero and operations whose result is outside the folding bounds remain instructions and preserve runtime diagnostics. Optimization can be disabled with `Compiler(optimize=False)` or `--no-optimize`.
+The bytecode optimizer remaps absolute jump targets after compaction and preserves source locations. It refuses unsafe folds when control flow enters the middle of an expression, and it keeps a DUP/POP pair when either instruction is a jump target. Division/modulo by zero and operations outside folding bounds remain runtime operations. Compiler(optimize=False) disables both IR and backend transformations; ir_optimize can explicitly isolate the IR pass manager.
 
 ## 7. Control-Flow Analysis
 
@@ -103,13 +100,15 @@ Phase 9 adds a read-only control-flow graph (CFG) for the main bytecode chunk an
 
 ## 8. Intermediate Representation and Pass Manager
 
-Phase 11 introduces an independent IR package. BytecodeToIR first verifies its input, then converts each code chunk to IR basic blocks. Operand-stack entries are represented by typed virtual values; every stack merge is represented by target block parameters, which act as explicit phi-like inputs. Non-terminating operations carry explicit input/output value IDs. Jumps, conditional branches, returns, and halts are represented as block terminators with explicit edge arguments.
+Phase 11 introduced the explicit-value IR model and the compatibility BytecodeToIR lifter. The lifter verifies its input and converts operand-stack entries to typed virtual values; stack merges become target block parameters. This remains useful for inspecting, migrating, and round-tripping verified bytecode modules.
 
-The IR verifier checks unique definitions, use-before-definition, operation arity, function call signatures, block targets, and live edge/block-parameter compatibility. IRValueNumberingPass assigns deterministic virtual-value IDs. IRAnalyzer computes reachability, predecessors, dominator sets, immediate dominators, and natural loop back-edges. The pass manager verifies IR before and after canonicalization, then produces stable analysis/statistics.
+The normal source compiler now enters IR through ASTToIR, without generating bytecode first. It uses the semantic analyzer's exact symbol/type bindings and creates typed operations, function signatures, local-slot metadata, constants, and explicit basic blocks directly from the AST. If/else-if statements become conditional edges; while loops become explicit condition/body/exit blocks and back-edges. Expression temporaries are block-local, while variables remain explicit local/global memory operations, so the current IR verifier can validate definitions without implicit cross-block temporaries.
 
-IRToBytecode lays out the blocks in their original source order, reconstitutes branch targets and terminators, preserves constants/local frames/debug metadata, and runs the bytecode verifier over the lowered module. No new bytecode opcodes or serialized-format changes are required.
+The IR verifier checks unique definitions, use-before-definition, operation arity, function call signatures, block targets, and live edge/block-parameter compatibility. IRValueNumberingPass assigns deterministic virtual-value IDs. IRAnalyzer computes reachability, predecessors, dominator sets, immediate dominators, and natural loop back-edges. The pass manager verifies IR before and after optimization/canonicalization and produces stable analysis/statistics.
 
-The transitional design is intentional: the current AST code generator remains the stable frontend backend, while the IR boundary provides a migration point for future direct AST-to-IR lowering. Phase 12 adds IR-native scalar constant propagation through block parameters, bounded constant folding, constant-branch simplification, and reachability-based block removal. The pass manager iterates to a bounded fixed point, canonicalizes values, verifies the result, and records transformation counters. Runtime-faulting expressions and unknown branches remain intact. Compiler(optimize=False) disables both bytecode and IR transformations; the optional ir_optimize override supports isolated comparisons. CompilationResult exposes ir_module, ir_stats, and ir_analysis; rifai inspect exports the same information under its IR stages.
+IRToBytecode lays out blocks using deterministic layout indices, reconstitutes branch targets and terminators, preserves constants/local frames/source maps/debug metadata, and runs the bytecode verifier over the lowered module. No new bytecode opcodes or serialized-format changes are required. BytecodeToIR remains a public compatibility tool; Compiler.compile() uses the direct AST route.
+
+Phase 12 adds IR-native scalar constant propagation through values and block parameters, bounded constant folding, constant-branch simplification, and reachability-based block removal. The pass manager iterates to a bounded fixed point, canonicalizes values, verifies the result, and records transformation counters. Runtime-faulting expressions and unknown branches remain intact. The target-specific BytecodeOptimizer runs after lowering when optimization is enabled. Compiler(optimize=False) disables both optimization layers while retaining verification and analysis; the optional ir_optimize override supports isolated comparisons. CompilationResult exposes ir_origin, ir_module, ir_stats, and ir_analysis; rifai inspect exports the same information under its IR stages.
 
 ## 9. Diagnostics, Limits, and CLI
 
@@ -132,3 +131,4 @@ Diagnostics identify the phase that emitted them and preserve source line/column
 - Phase 10: CFG-aware constant propagation, branch simplification, unreachable-block elimination, and profitable local common-subexpression elimination.
 - Phase 11: Typed explicit-value IR, block parameters, verified lifting/lowering, canonical value numbering, dominator analysis, and multi-pass compiler integration.
 - Phase 12: IR-native scalar constant propagation/folding, constant-branch simplification, unreachable-block elimination, and bounded fixed-point optimization.
+- Phase 13: Direct semantic-AST-to-IR lowering for main/functions, explicit source-level control flow, debug metadata preservation, and direct IR-driven source compilation.

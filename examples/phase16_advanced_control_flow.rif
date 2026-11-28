@@ -1,0 +1,39 @@
+// Phase 16: advanced control flow and short-circuit logic.
+
+let visits: int = 0;
+
+fn visit() -> bool {
+    visits = visits + 1;
+    return true;
+}
+
+let skipped_and: bool = false and visit();
+let skipped_or: bool = true or visit();
+let evaluated: bool = true and visit();
+
+print(skipped_and);
+print(skipped_or);
+print(visits);
+
+let sum: int = 0;
+for (let i: int = 0; i < 10; i = i + 1) {
+    if (i == 2) {
+        continue;
+    }
+    sum = sum + i;
+    if (sum >= 10) {
+        break;
+    }
+}
+print(sum);
+
+let n: int = 0;
+let odd_sum: int = 0;
+while (n < 6) {
+    n = n + 1;
+    if (n % 2 == 0) {
+        continue;
+    }
+    odd_sum = odd_sum + n;
+}
+print(odd_sum);

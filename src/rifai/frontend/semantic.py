@@ -36,6 +36,9 @@ from rifai.frontend.ast_nodes import (
     VariableDeclaration,
     VariableExpression,
     WhileStatement,
+    ForStatement,
+    BreakStatement,
+    ContinueStatement,
 )
 from rifai.frontend.symbol_table import FunctionSymbol, SymbolTable, VariableSymbol
 from rifai.frontend.tokens import TokenType
@@ -125,6 +128,7 @@ class SemanticAnalyzer:
         self._constructor_bindings: dict[int, StructDeclaration] = {}
         self._member_bindings: dict[int, StructField] = {}
         self._enum_variant_bindings: dict[int, tuple[str, str]] = {}
+        self._loop_depth = 0
 
     def analyze(self, program: Program) -> SemanticResult:
         """Analyze a parsed Rifa'i Program AST and return a SemanticResult."""
@@ -140,6 +144,7 @@ class SemanticAnalyzer:
         self._constructor_bindings = {}
         self._member_bindings = {}
         self._enum_variant_bindings = {}
+        self._loop_depth = 0
 
         self._collect_type_declarations(program)
         for struct in self._struct_declarations.values():
@@ -315,7 +320,9 @@ class SemanticAnalyzer:
             return
 
         previous_function = self._current_function
+        previous_loop_depth = self._loop_depth
         self._current_function = func_symbol
+        self._loop_depth = 0
         self._symbol_table.enter_scope(f"fn:{decl.name}")
         try:
             for param_node, param_sym in zip(decl.params, func_symbol.params):
@@ -338,6 +345,7 @@ class SemanticAnalyzer:
         finally:
             self._symbol_table.exit_scope()
             self._current_function = previous_function
+            self._loop_depth = previous_loop_depth
 
     def _analyze_statement(self, stmt: Statement) -> None:
         if isinstance(stmt, VariableDeclaration):
@@ -354,6 +362,14 @@ class SemanticAnalyzer:
             self._analyze_if(stmt)
         elif isinstance(stmt, WhileStatement):
             self._analyze_while(stmt)
+        elif isinstance(stmt, ForStatement):
+            self._analyze_for(stmt)
+        elif isinstance(stmt, BreakStatement):
+            if self._loop_depth == 0:
+                self._error(stmt.span, "'break' is only allowed inside a loop.")
+        elif isinstance(stmt, ContinueStatement):
+            if self._loop_depth == 0:
+                self._error(stmt.span, "'continue' is only allowed inside a loop.")
         elif isinstance(stmt, ReturnStatement):
             self._analyze_return(stmt)
         elif isinstance(stmt, PrintStatement):
@@ -553,7 +569,34 @@ class SemanticAnalyzer:
                 stmt.condition.span,
                 f"'while' condition must have type 'bool', got '{cond_type.value}'.",
             )
-        self._analyze_block(stmt.body)
+        self._loop_depth += 1
+        try:
+            self._analyze_block(stmt.body)
+        finally:
+            self._loop_depth -= 1
+
+    def _analyze_for(self, stmt: ForStatement) -> None:
+        """Analyze for clauses and body in a dedicated loop scope."""
+        self._symbol_table.enter_scope("for")
+        try:
+            if stmt.initializer is not None:
+                self._analyze_statement(stmt.initializer)
+            if stmt.condition is not None:
+                cond_type = self._analyze_expression(stmt.condition)
+                if not is_error_type(cond_type) and cond_type is not RifaiType.BOOL:
+                    self._error(
+                        stmt.condition.span,
+                        f"'for' condition must have type 'bool', got '{cond_type.value}'.",
+                    )
+            if stmt.increment is not None:
+                self._analyze_statement(stmt.increment)
+            self._loop_depth += 1
+            try:
+                self._analyze_block(stmt.body)
+            finally:
+                self._loop_depth -= 1
+        finally:
+            self._symbol_table.exit_scope()
 
     def _analyze_return(self, stmt: ReturnStatement) -> None:
         if self._current_function is None:

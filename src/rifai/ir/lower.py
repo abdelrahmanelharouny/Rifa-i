@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from rifai.bytecode.chunk import BytecodeFunction, CodeChunk
 from rifai.bytecode.instructions import Instruction, Opcode
-from rifai.bytecode.module import BytecodeModule, NOMINAL_TYPES_FORMAT_VERSION
+from rifai.bytecode.module import BytecodeModule
 from rifai.bytecode.verifier import BytecodeVerifier
 from rifai.ir.model import IRBranch, IRFunction, IRHalt, IRJump, IRModule, IROperation, IRReturn
 from rifai.ir.verifier import IRVerifier

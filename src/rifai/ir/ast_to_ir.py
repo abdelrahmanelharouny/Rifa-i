@@ -477,7 +477,7 @@ class ASTToIR:
                 raise ValueError(f"No local slot allocated for '{symbol.name}'.")
             result = self._emit(
                 Opcode.LOAD_LOCAL,
-                output_type=symbol.rifai_type.value,
+                output_type=type_name(symbol.rifai_type),
                 operand=slot,
                 span=span,
             )

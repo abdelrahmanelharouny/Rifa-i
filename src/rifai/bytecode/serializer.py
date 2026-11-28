@@ -354,7 +354,7 @@ class BytecodeSerializer:
             NOMINAL_TYPES_FORMAT_VERSION
         ):
             raise BytecodeFormatError(
-                f"Unsupported bytecode version {version!r}; supported versions are 1, 2, 3, and 4."
+                f"Unsupported bytecode version {version!r}; supported versions are 1, 2, 3, 4, and 5."
             )
 
         expected_fields = {"magic", "format_version", "source_name", "constants", "main"}

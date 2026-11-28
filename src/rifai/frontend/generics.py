@@ -754,6 +754,10 @@ class GenericSpecializer:
             return replace(expr, object=obj) if obj is not expr.object else expr
         if isinstance(expr, EnumConstructorExpression):
             args = tuple(self._rewrite_expression(a, env, substitutions) for a in expr.arguments)
+            explicit_enum_arguments = tuple(
+                self._specialize_annotation(annotation, substitutions)
+                for annotation in expr.type_arguments
+            )
             template = self._generic_enums.get(expr.enum_name)
             if template is not None:
                 variant = next((item for item in template.variants if item.name == expr.variant_name), None)
@@ -767,7 +771,7 @@ class GenericSpecializer:
                     patterns,
                     args,
                     env,
-                    explicit_type_arguments,
+                    explicit_enum_arguments,
                     expr.span,
                 )
                 if concrete is None:

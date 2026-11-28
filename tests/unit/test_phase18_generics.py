@@ -68,6 +68,20 @@ def test_generic_functions_infer_primitive_array_and_nominal_types(optimize: boo
     assert len(identity_instances) == len(set(identity_instances))
 
 
+def test_inspection_exposes_generic_templates_and_concrete_specializations():
+    from rifai.inspect import inspect_source
+
+    snapshot = inspect_source(SOURCE)
+    assert snapshot["success"]
+    assert snapshot["stages"]["generics"]["success"]
+    assert {item["name"] for item in snapshot["stages"]["generics"]["generic_functions"]} == {
+        "identity", "first", "relay", "combine"
+    }
+    assert snapshot["stages"]["generics"]["specialization_count"] >= 7
+    assert snapshot["stages"]["semantic"]["success"]
+    assert snapshot["stages"]["bytecode"]["format_version"] == 6
+
+
 def test_generic_function_ast_and_specializer_remove_templates():
     lexed = Lexer("fn identity<T>(value: T) -> T { return value; } let x = identity(1);").scan_tokens()
     assert not lexed.has_errors

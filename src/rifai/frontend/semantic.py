@@ -876,7 +876,14 @@ class SemanticAnalyzer:
             )
             return RifaiType.ERROR
 
-        element_types = [self._analyze_expression(item) for item in expr.elements]
+        expected_element = array_element_type(expected_type) if expected_type is not None and is_array_type(expected_type) else None
+        element_types = [
+            self._analyze_expression(
+                item,
+                expected_type=expected_element if expected_element is not None and is_array_type(expected_element) else None,
+            )
+            for item in expr.elements
+        ]
         first_type = element_types[0]
         inferred_array = (
             array_type_for(first_type)

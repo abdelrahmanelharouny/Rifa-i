@@ -426,6 +426,36 @@ class VirtualMachine:
                 if variant not in variants:
                     raise fault(f"Enum '{enum_name}' has no variant '{variant}'.", instruction)
                 push(EnumValue(enum_name, variant), instruction)
+            elif opcode is Opcode.ENUM_NEW_PAYLOAD:
+                enum_name, variant, payload_types_text = instruction.operand.split("|", 2)
+                payload_types = payload_types_text.split(",") if payload_types_text else []
+                if len(stack) < len(payload_types):
+                    raise fault("Enum construction has insufficient payload values.", instruction)
+                values = stack[-len(payload_types):] if payload_types else []
+                if payload_types:
+                    del stack[-len(payload_types):]
+                for index, (value, expected) in enumerate(zip(values, payload_types)):
+                    if not self._matches_type(value, expected):
+                        raise fault(f"Payload {index + 1} of '{enum_name}.{variant}' expects '{expected}'.", instruction)
+                push(EnumValue(enum_name, variant, tuple(values)), instruction)
+            elif opcode is Opcode.ENUM_IS:
+                enum_value = pop(instruction)
+                enum_name, variant = instruction.operand.split("|", 1)
+                if not isinstance(enum_value, EnumValue) or enum_value.type_name != enum_name:
+                    raise fault(f"ENUM_IS requires a value of enum type '{enum_name}'.", instruction)
+                push(enum_value.variant == variant, instruction)
+            elif opcode is Opcode.ENUM_GET:
+                enum_value = pop(instruction)
+                enum_name, variant, index_text, expected = instruction.operand.split("|", 3)
+                index = int(index_text)
+                if not isinstance(enum_value, EnumValue) or enum_value.type_name != enum_name or enum_value.variant != variant:
+                    raise fault(f"ENUM_GET requires '{enum_name}.{variant}'.", instruction)
+                if index < 0 or index >= len(enum_value.payloads):
+                    raise fault(f"Enum payload index {index} is out of range.", instruction)
+                value = enum_value.payloads[index]
+                if not self._matches_type(value, expected):
+                    raise fault(f"Enum payload {index + 1} has an invalid runtime type.", instruction)
+                push(value, instruction)
             elif opcode is Opcode.ARRAY_GET:
                 index = pop(instruction)
                 array = pop(instruction)

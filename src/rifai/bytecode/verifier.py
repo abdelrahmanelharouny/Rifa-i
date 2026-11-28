@@ -21,6 +21,7 @@ from rifai.bytecode.module import (
     BytecodeModule,
     COLLECTIONS_FORMAT_VERSION,
     NOMINAL_TYPES_FORMAT_VERSION,
+    ALGEBRAIC_TYPES_FORMAT_VERSION,
     DEBUG_INFO_FORMAT_VERSION,
     FORMAT_VERSION,
     FUNCTIONS_FORMAT_VERSION,
@@ -91,6 +92,41 @@ def _valid_enum_variant(value: str) -> bool:
     )
 
 
+def _valid_enum_payload_schema(value: str) -> bool:
+    if len(value) > 4096 or value.count("|") != 2:
+        return False
+    enum_name, variant, payload_text = value.split("|", 2)
+    if not _is_nominal_type_name(enum_name) or not _is_identifier(variant):
+        return False
+    payload_types = payload_text.split(",") if payload_text else []
+    return len(payload_types) <= 256 and all(
+        item in _ALLOWED_VALUE_TYPES or _is_nominal_type_name(item)
+        for item in payload_types
+    )
+
+
+def _valid_enum_test(value: str) -> bool:
+    return (
+        len(value) <= 512
+        and value.count("|") == 1
+        and all(_is_identifier(item) for item in value.split("|"))
+        and _is_nominal_type_name(value.split("|", 1)[0])
+    )
+
+
+def _valid_enum_payload_access(value: str) -> bool:
+    if len(value) > 1024 or value.count("|") != 3:
+        return False
+    enum_name, variant, index_text, expected = value.split("|", 3)
+    return (
+        _is_nominal_type_name(enum_name)
+        and _is_identifier(variant)
+        and index_text.isdigit()
+        and int(index_text) <= 255
+        and (expected in _ALLOWED_VALUE_TYPES or _is_nominal_type_name(expected))
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class BytecodeValidationResult:
     """Result of validating a bytecode module."""
@@ -135,6 +171,7 @@ class BytecodeVerifier:
             DEBUG_INFO_FORMAT_VERSION,
             COLLECTIONS_FORMAT_VERSION,
             NOMINAL_TYPES_FORMAT_VERSION,
+            ALGEBRAIC_TYPES_FORMAT_VERSION,
         ):
             report(f"Unsupported bytecode version {module.format_version!r}.")
         if module.source_name is not None and not isinstance(module.source_name, str):
@@ -178,6 +215,10 @@ class BytecodeVerifier:
         supports_nominal_types = (
             type(module.format_version) is int
             and module.format_version >= NOMINAL_TYPES_FORMAT_VERSION
+        )
+        supports_algebraic_types = (
+            type(module.format_version) is int
+            and module.format_version >= ALGEBRAIC_TYPES_FORMAT_VERSION
         )
         if not supports_functions and module.functions:
             report("Version 1 bytecode cannot contain function chunks.")
@@ -466,6 +507,21 @@ class BytecodeVerifier:
                     if opcode is Opcode.ENUM_NEW and not _valid_enum_variant(operand):
                         report("ENUM_NEW requires a valid Enum|Variants|SelectedVariant schema.", instruction)
                         continue
+                elif opcode in {Opcode.ENUM_NEW_PAYLOAD, Opcode.ENUM_IS, Opcode.ENUM_GET}:
+                    if not supports_algebraic_types:
+                        report(f"{opcode.value} requires bytecode version {ALGEBRAIC_TYPES_FORMAT_VERSION}.", instruction)
+                        continue
+                    if not isinstance(operand, str) or not operand:
+                        report(f"{opcode.value} requires a non-empty string operand.", instruction)
+                        continue
+                    valid = (
+                        _valid_enum_payload_schema(operand) if opcode is Opcode.ENUM_NEW_PAYLOAD
+                        else _valid_enum_test(operand) if opcode is Opcode.ENUM_IS
+                        else _valid_enum_payload_access(operand)
+                    )
+                    if not valid:
+                        report(f"{opcode.value} has an invalid enum payload or pattern operand.", instruction)
+                        continue
                 elif opcode is Opcode.CALL:
                     if operand in BUILTIN_ARITIES and not supports_nominal_types:
                         report(
@@ -499,7 +555,14 @@ class BytecodeVerifier:
                 opcode = instruction.opcode
                 before = depths[index]
 
-                if opcode is Opcode.CALL:
+                if opcode is Opcode.ENUM_NEW_PAYLOAD:
+                    payload_types = instruction.operand.split("|", 2)[2].split("|") if False else instruction.operand.split("|", 2)[2].split(",") if instruction.operand.split("|", 2)[2] else []
+                    required = len(payload_types)
+                    delta = 1 - required
+                elif opcode is Opcode.ENUM_IS or opcode is Opcode.ENUM_GET:
+                    required = 1
+                    delta = 0
+                elif opcode is Opcode.CALL:
                     target = function_by_name.get(instruction.operand)
                     required = target.arity if target is not None else BUILTIN_ARITIES.get(instruction.operand, 0)
                     returns_value = target.returns_value if target is not None else True

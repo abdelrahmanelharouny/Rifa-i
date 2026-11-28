@@ -28,6 +28,7 @@ from rifai.frontend.ast_nodes import (
 from rifai.frontend.lexer import Lexer, LexResult
 from rifai.frontend.parser import Parser, ParseResult
 from rifai.frontend.semantic import SemanticAnalyzer, SemanticResult
+from rifai.frontend.generics import GenericSpecializer, GenericSpecializationResult
 from rifai.frontend.symbol_table import (
     FunctionSymbol,
     Scope,
@@ -49,6 +50,8 @@ __all__ = [
     "FunctionCallExpression",
     "FunctionDeclaration",
     "FunctionSymbol",
+    "GenericSpecializer",
+    "GenericSpecializationResult",
     "GroupingExpression",
     "IfStatement",
     "KEYWORDS",

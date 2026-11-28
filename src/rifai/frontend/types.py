@@ -96,10 +96,14 @@ def array_element_type(rifai_type: StaticType) -> StaticType | None:
     return _ARRAY_ELEMENT_TYPES.get(rifai_type) if isinstance(rifai_type, RifaiType) else None
 
 
-def array_type_for(element_type: StaticType) -> ArrayType:
-    """Return the corresponding homogeneous array type for any value type."""
+def array_type_for(element_type: StaticType) -> StaticType:
+    """Return a homogeneous array type while preserving legacy primitive aliases."""
     if element_type is RifaiType.VOID or element_type is RifaiType.ERROR:
         raise ValueError("Arrays cannot contain void or error values.")
+    if isinstance(element_type, RifaiType):
+        legacy = _ELEMENT_ARRAY_TYPES.get(element_type)
+        if legacy is not None:
+            return legacy
     return ArrayType(element_type)
 
 

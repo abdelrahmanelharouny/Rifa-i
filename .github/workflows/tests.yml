@@ -127,7 +127,7 @@ jobs:
       - name: Inspect Phase 18 generic compiler pipeline
         run: |
           rifai inspect examples/phase18_generics.rif --output /tmp/rifai-phase18.json
-          python -c "import json; p=json.load(open('/tmp/rifai-phase18.json', encoding='utf-8')); print('Inspect keys:', sorted(p)); print('Stage keys:', sorted(p['stages'])); assert p['success'] and p['stages']['ir']['origin'] == 'direct-ast' and p['stages']['bytecode']['format_version'] == 6"
+          python -c "import json; p=json.load(open('/tmp/rifai-phase18.json', encoding='utf-8')); g=p['stages']['generics']; print('Generic inspection:', g); assert p['success'] and g['success'] and g['specialization_count'] >= 7 and p['stages']['ir']['origin'] == 'direct-ast' and p['stages']['bytecode']['format_version'] == 6"
 
       - name: Verify interactive debugger smoke test
         run: |

@@ -17,7 +17,24 @@ class ArrayValue:
     items: list[int | float | bool | str]
 
 
-RuntimeValue = int | float | bool | str | ArrayValue
+@dataclass(slots=True)
+class StructValue:
+    """Mutable nominal record with a runtime-checked field schema."""
+
+    type_name: str
+    field_types: dict[str, str]
+    fields: dict[str, int | float | bool | str | ArrayValue | StructValue | EnumValue]
+
+
+@dataclass(frozen=True, slots=True)
+class EnumValue:
+    """Immutable unit enum variant."""
+
+    type_name: str
+    variant: str
+
+
+RuntimeValue = int | float | bool | str | ArrayValue | StructValue | EnumValue
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,4 +79,12 @@ def format_value(value: RuntimeValue) -> str:
         return "true" if value else "false"
     if isinstance(value, ArrayValue):
         return "[" + ", ".join(format_value(item) for item in value.items) + "]"
+    if isinstance(value, StructValue):
+        fields = ", ".join(
+            f"{name}: {format_value(item)}"
+            for name, item in value.fields.items()
+        )
+        return f"{value.type_name}{{{fields}}}"
+    if isinstance(value, EnumValue):
+        return f"{value.type_name}.{value.variant}"
     return str(value)

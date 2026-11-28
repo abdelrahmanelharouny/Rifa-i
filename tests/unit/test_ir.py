@@ -35,12 +35,17 @@ print(square(total));
     assert result.ir_analysis is not None
     assert result.ir_stats.passes == (
         "verify-input",
+        "ir-copy-propagation",
         "ir-constant-propagation",
         "ir-branch-simplification",
         "ir-unreachable-block-elimination",
+        "ir-loop-invariant-code-motion",
+        "ir-global-common-subexpression-elimination",
+        "ir-dead-code-elimination",
         "canonical-value-numbering",
         "verify-output",
         "cfg-dominator-analysis",
+        "side-effect-analysis",
     )
     assert result.ir_stats.function_count == 2
     assert result.ir_stats.block_count == result.ir_module.block_count

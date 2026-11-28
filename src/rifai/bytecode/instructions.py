@@ -53,6 +53,12 @@ class Opcode(str, Enum):
     ARRAY_PUSH = "ARRAY_PUSH"
     ARRAY_POP = "ARRAY_POP"
 
+    # Nominal records and unit enums (bytecode v5).
+    STRUCT_NEW = "STRUCT_NEW"
+    FIELD_GET = "FIELD_GET"
+    FIELD_SET = "FIELD_SET"
+    ENUM_NEW = "ENUM_NEW"
+
     HALT = "HALT"
 
 
@@ -89,7 +95,7 @@ _INTEGER_OPERAND_OPCODES = frozenset(
     }
 )
 _STRING_OPERAND_OPCODES = frozenset(
-    {Opcode.LOAD_GLOBAL, Opcode.STORE_GLOBAL, Opcode.CALL}
+    {Opcode.LOAD_GLOBAL, Opcode.STORE_GLOBAL, Opcode.CALL, Opcode.STRUCT_NEW, Opcode.FIELD_GET, Opcode.FIELD_SET, Opcode.ENUM_NEW}
 )
 
 
@@ -130,6 +136,7 @@ def stack_requirement(opcode: Opcode) -> int:
         Opcode.OR,
         Opcode.ARRAY_SET,
         Opcode.ARRAY_PUSH,
+        Opcode.FIELD_SET,
     }:
         return 3 if opcode is Opcode.ARRAY_SET else 2
     if opcode is Opcode.ARRAY_GET:
@@ -138,6 +145,10 @@ def stack_requirement(opcode: Opcode) -> int:
         return 1
     if opcode is Opcode.DUP:
         return 1
+    if opcode in (Opcode.STRUCT_NEW, Opcode.ENUM_NEW):
+        return 1
+    if opcode is Opcode.FIELD_SET:
+        return -2
     return 0
 
 

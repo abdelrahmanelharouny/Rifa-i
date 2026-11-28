@@ -97,7 +97,7 @@ def test_generic_functions_receive_live_semantic_diagnostics_and_signature_help(
     server = LanguageServer()
     uri = _open(server, source)
     assert server.documents[uri].analysis.diagnostics == ()
-    position = _position(source, "identity(5)", 1)
+    position = _position(source, "identity(5)")
     hover = server.handle_request("textDocument/hover", _params(uri, position))
     assert hover is not None
     assert "int" in hover["contents"]["value"]

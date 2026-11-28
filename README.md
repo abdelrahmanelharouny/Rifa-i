@@ -21,6 +21,7 @@ Rifa'i (.rif) is a custom statically typed programming language implemented in P
 - **Phase 15 — Language Evolution (Complete):** Relative source modules with dependency ordering/cycle and traversal checks; nominal structs and unit enums; inferred local variables; field access and mutation; checked math/string/conversion/file standard-library functions; capability-based bounded UTF-8 file I/O; and bytecode v5 with continued v1-v4 compatibility.
 - **Phase 16 — Advanced Control Flow (Complete):** C-style for loops with scoped initializers and optional clauses; break/continue with correct nested-loop targets; and true short-circuit and/or lowering through explicit IR branches and block parameters.
 - **Phase 17 — Algebraic Data Types & Pattern Matching (Complete):** Typed enum payload variants, immutable tagged runtime values, exhaustive enum match expressions with scoped payload bindings, explicit IR decision trees, and bytecode v6 with v1–v5 compatibility.
+- **Phase 18 — Generics & Parametric Polymorphism (Complete):** Generic function declarations, inferred type arguments, deterministic compile-time monomorphization, cached specializations, typed-array parameters, nominal-type specialization, recursive generic calls, and LSP diagnostics without changing the VM or bytecode format.
 
 ## Quick Start
 
@@ -62,6 +63,9 @@ rifai run examples/phase16_advanced_control_flow.rif
 
 # Run the Phase 17 algebraic data types example
 rifai run examples/phase17_algebraic_data_types.rif
+
+# Run the Phase 18 generic functions example
+rifai run examples/phase18_generics.rif
 
 # Run the complete test suite
 python -m pytest -v

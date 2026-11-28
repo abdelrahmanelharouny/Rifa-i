@@ -193,6 +193,17 @@ class Lexer:
             )
             return
 
+        if ch == "." and _is_ascii_digit(self._peek()):
+            self._consume_invalid_numeric_tail()
+            lexeme = self._source[start_offset : self._index]
+            self._emit_error(
+                f"Malformed floating-point literal '{lexeme}': digits are required before the decimal point.",
+                start_line,
+                start_column,
+                start_offset,
+            )
+            return
+
         single_type = _SINGLE_CHAR_TOKENS.get(ch)
         if single_type is not None:
             self._emit_token(single_type, start_offset, start_line, start_column)
@@ -232,17 +243,6 @@ class Lexer:
 
         if _is_ascii_digit(ch):
             self._scan_number(start_offset, start_line, start_column)
-            return
-
-        if ch == "." and _is_ascii_digit(self._peek()):
-            self._consume_invalid_numeric_tail()
-            lexeme = self._source[start_offset : self._index]
-            self._emit_error(
-                f"Malformed floating-point literal '{lexeme}': digits are required before the decimal point.",
-                start_line,
-                start_column,
-                start_offset,
-            )
             return
 
         if _is_ident_start(ch):

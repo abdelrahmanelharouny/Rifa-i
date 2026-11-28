@@ -99,6 +99,14 @@ jobs:
           rifai inspect examples/phase15_language_evolution.rif --output /tmp/rifai-phase15.json
           python -c "import json; p=json.load(open('/tmp/rifai-phase15.json', encoding='utf-8')); assert p['success'] and p['stages']['bytecode']['format_version'] == 5 and p['stages']['ir']['origin'] == 'direct-ast'"
 
+      - name: Validate Phase 16 advanced control flow
+        run: |
+          rifai check examples/phase16_advanced_control_flow.rif
+          rifai run examples/phase16_advanced_control_flow.rif > /tmp/rifai-phase16.txt
+          python -c "from pathlib import Path; assert Path('/tmp/rifai-phase16.txt').read_text(encoding='utf-8').strip().splitlines() == ['false', 'true', '1', '13', '9']"
+          rifai inspect examples/phase16_advanced_control_flow.rif --output /tmp/rifai-phase16.json
+          python -c "import json; p=json.load(open('/tmp/rifai-phase16.json', encoding='utf-8')); assert p['success'] and p['stages']['ir']['origin'] == 'direct-ast' and p['stages']['bytecode']['format_version'] == 5"
+
       - name: Verify interactive debugger smoke test
         run: |
           printf '%s\n' continue continue | rifai debug examples/phase7_debugger.rif --breakpoint 4 > /tmp/rifai-debug.txt

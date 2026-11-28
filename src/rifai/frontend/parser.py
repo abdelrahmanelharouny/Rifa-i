@@ -38,6 +38,9 @@ from rifai.frontend.ast_nodes import (
     VariableDeclaration,
     VariableExpression,
     WhileStatement,
+    ForStatement,
+    BreakStatement,
+    ContinueStatement,
 )
 from rifai.frontend.tokens import Token, TokenType
 
@@ -57,6 +60,9 @@ _SYNC_STARTERS: Final[frozenset[TokenType]] = frozenset(
         TokenType.LET,
         TokenType.IF,
         TokenType.WHILE,
+        TokenType.FOR,
+        TokenType.BREAK,
+        TokenType.CONTINUE,
         TokenType.RETURN,
         TokenType.PRINT,
         TokenType.RIGHT_BRACE,
@@ -331,6 +337,12 @@ class Parser:
             return self._parse_if_statement()
         if self._check(TokenType.WHILE):
             return self._parse_while_statement()
+        if self._check(TokenType.FOR):
+            return self._parse_for_statement()
+        if self._check(TokenType.BREAK):
+            return self._parse_break_statement()
+        if self._check(TokenType.CONTINUE):
+            return self._parse_continue_statement()
         if self._check(TokenType.RETURN):
             return self._parse_return_statement()
         if self._check(TokenType.PRINT):
@@ -466,6 +478,93 @@ class Parser:
             body=body,
             span=SourceSpan.between(while_token, body.span),
         )
+
+    def _parse_for_statement(self) -> ForStatement:
+        keyword = self._consume(TokenType.FOR, "Expected 'for'.")
+        self._consume(TokenType.LEFT_PAREN, "Expected '(' after 'for'.")
+
+        initializer: Statement | None = None
+        if self._check(TokenType.SEMICOLON):
+            self._advance()
+        elif self._check(TokenType.LET):
+            initializer = self._parse_variable_declaration()
+        else:
+            initializer = self._parse_for_clause(consume_semicolon=True)
+
+        condition: Expression | None = None
+        if not self._check(TokenType.SEMICOLON):
+            condition = self._parse_expression()
+        self._consume(TokenType.SEMICOLON, "Expected ';' after for-loop condition.")
+
+        increment = (
+            None
+            if self._check(TokenType.RIGHT_PAREN)
+            else self._parse_for_clause(consume_semicolon=False)
+        )
+        self._consume(TokenType.RIGHT_PAREN, "Expected ')' after for-loop clauses.")
+        if not self._check(TokenType.LEFT_BRACE):
+            raise self._error(self._peek(), "Expected '{' before for-loop body.")
+        body = self._parse_block()
+        return ForStatement(
+            initializer=initializer,
+            condition=condition,
+            increment=increment,
+            body=body,
+            span=SourceSpan.between(keyword, body.span),
+        )
+
+    def _parse_for_clause(self, *, consume_semicolon: bool) -> Statement:
+        target = self._parse_expression()
+        value: Expression | None = None
+        if self._match(TokenType.ASSIGN) is not None:
+            value = self._parse_expression()
+
+        end: Token | SourceSpan = value.span if value is not None else target.span
+        if consume_semicolon:
+            end = self._consume(
+                TokenType.SEMICOLON,
+                "Expected ';' after for-loop initializer.",
+            )
+        span = SourceSpan.between(target.span, end)
+
+        if value is None:
+            return ExpressionStatement(expression=target, span=span)
+        if isinstance(target, VariableExpression):
+            return AssignmentStatement(
+                name=target.name,
+                name_token=target.token,
+                value=value,
+                span=span,
+            )
+        if isinstance(target, IndexExpression):
+            return IndexAssignmentStatement(
+                array=target.array,
+                index=target.index,
+                value=value,
+                span=span,
+            )
+        if isinstance(target, MemberExpression):
+            return MemberAssignmentStatement(
+                object=target.object,
+                name=target.name,
+                name_token=target.name_token,
+                value=value,
+                span=span,
+            )
+        raise self._error(
+            self._previous(),
+            "For-loop assignments must target a variable, array element, or struct field.",
+        )
+
+    def _parse_break_statement(self) -> BreakStatement:
+        keyword = self._consume(TokenType.BREAK, "Expected 'break'.")
+        semi = self._consume(TokenType.SEMICOLON, "Expected ';' after 'break'.")
+        return BreakStatement(keyword=keyword, span=SourceSpan.between(keyword, semi))
+
+    def _parse_continue_statement(self) -> ContinueStatement:
+        keyword = self._consume(TokenType.CONTINUE, "Expected 'continue'.")
+        semi = self._consume(TokenType.SEMICOLON, "Expected ';' after 'continue'.")
+        return ContinueStatement(keyword=keyword, span=SourceSpan.between(keyword, semi))
 
     def _parse_return_statement(self) -> ReturnStatement:
         keyword = self._consume(TokenType.RETURN, "Expected 'return'.")

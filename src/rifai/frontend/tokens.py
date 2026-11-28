@@ -28,6 +28,9 @@ class TokenType(str, Enum):
     IF = "IF"
     ELSE = "ELSE"
     WHILE = "WHILE"
+    FOR = "FOR"
+    BREAK = "BREAK"
+    CONTINUE = "CONTINUE"
     PRINT = "PRINT"
     IMPORT = "IMPORT"
     STRUCT = "STRUCT"
@@ -84,6 +87,9 @@ KEYWORDS: Final[dict[str, TokenType]] = {
     "if": TokenType.IF,
     "else": TokenType.ELSE,
     "while": TokenType.WHILE,
+    "for": TokenType.FOR,
+    "break": TokenType.BREAK,
+    "continue": TokenType.CONTINUE,
     "true": TokenType.TRUE,
     "false": TokenType.FALSE,
     "print": TokenType.PRINT,

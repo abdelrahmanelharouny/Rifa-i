@@ -82,7 +82,7 @@
     },
     "keywords": {
       "name": "keyword.control.rifai",
-      "match": "\\\\b(?:fn|let|return|if|else|while|print|and|or|not|len|push|pop)\\\\b"
+      "match": "\\\\b(?:fn|let|return|if|else|while|for|break|continue|print|import|struct|enum|and|or|not|len|push|pop)\\\\b"
     },
     "types": {
       "name": "storage.type.rifai",

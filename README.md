@@ -19,6 +19,7 @@ Rifa'i (.rif) is a custom statically typed programming language implemented in P
 - **Phase 13 — Direct AST-to-IR Compilation (Complete):** The normal source compiler now lowers the semantically-bound AST directly into typed IR, builds explicit control-flow blocks and function bodies, preserves source/debug metadata, verifies and optimizes IR, then lowers to the versioned bytecode backend (v5 for the new nominal-type features). Bytecode-to-IR lifting remains available as a compatibility and round-trip API.
 - **Phase 14 — Advanced IR Optimization (Complete):** Dominance-aware global common-subexpression elimination, copy propagation, conservative dead-code elimination, natural-loop LICM, explicit side-effect/trap classification, dominance verification for cross-block values, and materialized-value bytecode lowering for safe multi-use/loop-carried values. All transformations preserve the v4 bytecode contract used at the time of Phase 14.
 - **Phase 15 — Language Evolution (Complete):** Relative source modules with dependency ordering/cycle and traversal checks; nominal structs and unit enums; inferred local variables; field access and mutation; checked math/string/conversion/file standard-library functions; capability-based bounded UTF-8 file I/O; and bytecode v5 with continued v1-v4 compatibility.
+- **Phase 16 — Advanced Control Flow (Complete):** C-style for loops with scoped initializers and optional clauses; break/continue with correct nested-loop targets; and true short-circuit and/or lowering through explicit IR branches and block parameters, without changing bytecode v5.
 
 ## Quick Start
 
@@ -54,6 +55,9 @@ rifai-lsp
 
 # Run the Phase 15 language example
 rifai run examples/phase15_language_evolution.rif
+
+# Run the Phase 16 advanced control-flow example
+rifai run examples/phase16_advanced_control_flow.rif
 
 # Run the complete test suite
 python -m pytest -v

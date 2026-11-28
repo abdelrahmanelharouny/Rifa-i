@@ -38,6 +38,9 @@ from rifai.frontend.ast_nodes import (
     VariableDeclaration,
     VariableExpression,
     WhileStatement,
+    ForStatement,
+    BreakStatement,
+    ContinueStatement,
 )
 from rifai.frontend.semantic import SemanticResult
 from rifai.frontend.symbol_table import FunctionSymbol, VariableSymbol
@@ -83,6 +86,7 @@ _BINARY_OPCODES = {
 @dataclass(slots=True)
 class _MutableBlock:
     block_id: int
+    parameters: list[IRValue] = field(default_factory=list)
     operations: list[IROperation] = field(default_factory=list)
     terminator: IRJump | IRBranch | IRReturn | IRHalt | None = None
 
@@ -122,6 +126,14 @@ def _walk(root: ASTNode):
     elif isinstance(root, WhileStatement):
         yield from _walk(root.condition)
         yield from _walk(root.body)
+    elif isinstance(root, ForStatement):
+        if root.initializer is not None:
+            yield from _walk(root.initializer)
+        if root.condition is not None:
+            yield from _walk(root.condition)
+        if root.increment is not None:
+            yield from _walk(root.increment)
+        yield from _walk(root.body)
     elif isinstance(root, ReturnStatement) and root.value is not None:
         yield from _walk(root.value)
     elif isinstance(root, PrintStatement):
@@ -153,6 +165,7 @@ class ASTToIR:
         self._current: int | None = None
         self._next_value = 0
         self._function_name = "<main>"
+        self._loop_stack: list[tuple[int, int]] = []
 
     def build(
         self,
@@ -219,6 +232,7 @@ class ASTToIR:
         self._blocks = {}
         self._block_order = []
         self._next_value = 0
+        self._loop_stack = []
         self._slots = self._allocate_slots(roots, parameters, semantic)
         entry = self._new_block()
         if entry != 0:
@@ -360,7 +374,7 @@ class ASTToIR:
             blocks.append(
                 IRBlock(
                     block_id=block_id,
-                    parameters=(),
+                    parameters=tuple(state.parameters),
                     operations=tuple(state.operations),
                     terminator=state.terminator,
                     source_start=layout_index,
@@ -378,9 +392,14 @@ class ASTToIR:
             local_symbols=local_symbols,
         )
 
-    def _new_block(self) -> int:
+    def _new_block(self, parameter_types: tuple[str, ...] = ()) -> int:
         block_id = len(self._block_order)
-        self._blocks[block_id] = _MutableBlock(block_id)
+        parameters = [
+            IRValue(self._next_value + index, item_type)
+            for index, item_type in enumerate(parameter_types)
+        ]
+        self._next_value += len(parameters)
+        self._blocks[block_id] = _MutableBlock(block_id, parameters=parameters)
         self._block_order.append(block_id)
         return block_id
 
@@ -537,6 +556,18 @@ class ASTToIR:
             self._compile_if(statement)
         elif isinstance(statement, WhileStatement):
             self._compile_while(statement)
+        elif isinstance(statement, ForStatement):
+            self._compile_for(statement)
+        elif isinstance(statement, BreakStatement):
+            if not self._loop_stack:
+                raise ValueError("'break' reached IR lowering outside a loop.")
+            self._terminate(IRJump(self._loop_stack[-1][0], (), False, self._location(statement.span)))
+            self._set_current(None)
+        elif isinstance(statement, ContinueStatement):
+            if not self._loop_stack:
+                raise ValueError("'continue' reached IR lowering outside a loop.")
+            self._terminate(IRJump(self._loop_stack[-1][1], (), False, self._location(statement.span)))
+            self._set_current(None)
         elif isinstance(statement, ReturnStatement):
             value = (
                 self._compile_value(statement.value)
@@ -636,11 +667,57 @@ class ASTToIR:
         )
 
         self._set_current(body_id)
-        self._compile_statements(statement.body.statements)
+        self._loop_stack.append((exit_id, condition_id))
+        try:
+            self._compile_statements(statement.body.statements)
+        finally:
+            self._loop_stack.pop()
         if self._current is not None:
             self._terminate(
                 IRJump(condition_id, (), False, self._location(statement.body.span))
             )
+        self._set_current(exit_id)
+
+    def _compile_for(self, statement: ForStatement) -> None:
+        if statement.initializer is not None:
+            self._compile_statement(statement.initializer)
+        if self._current is None:
+            return
+
+        condition_id = self._new_block()
+        body_id = self._new_block()
+        increment_id = self._new_block()
+        exit_id = self._new_block()
+        self._terminate(IRJump(condition_id, (), False, self._location(statement.span)))
+
+        self._set_current(condition_id)
+        if statement.condition is None:
+            self._terminate(IRJump(body_id, (), False, self._location(statement.span)))
+        else:
+            condition = self._compile_value(statement.condition)
+            self._terminate(IRBranch(
+                condition=condition,
+                false_target=exit_id,
+                true_target=body_id,
+                false_arguments=(),
+                true_arguments=(),
+                location=self._location(statement.condition.span),
+            ))
+
+        self._set_current(body_id)
+        self._loop_stack.append((exit_id, increment_id))
+        try:
+            self._compile_statements(statement.body.statements)
+        finally:
+            self._loop_stack.pop()
+        if self._current is not None:
+            self._terminate(IRJump(increment_id, (), False, self._location(statement.body.span)))
+
+        self._set_current(increment_id)
+        if statement.increment is not None:
+            self._compile_statement(statement.increment)
+        if self._current is not None:
+            self._terminate(IRJump(condition_id, (), False, self._location(statement.span)))
         self._set_current(exit_id)
 
     def _compile_value(self, expression: Expression) -> int:
@@ -648,6 +725,43 @@ class ASTToIR:
         if value is None:
             raise ValueError(f"Expression '{type(expression).__name__}' has no value.")
         return value
+
+    def _compile_short_circuit(self, expression: BinaryExpression) -> int:
+        """Lower and/or to conditional CFG edges and a typed join value."""
+        left = self._compile_value(expression.left)
+        is_and = expression.operator.token_type is TokenType.AND
+        right_id = self._new_block()
+        short_id = self._new_block()
+        join_id = self._new_block(("bool",))
+        join_value = self._blocks[join_id].parameters[0].value_id
+
+        self._terminate(IRBranch(
+            condition=left,
+            false_target=short_id if is_and else right_id,
+            true_target=right_id if is_and else short_id,
+            false_arguments=(),
+            true_arguments=(),
+            location=self._location(expression.span),
+        ))
+
+        self._set_current(short_id)
+        short_value = self._emit(
+            Opcode.CONSTANT,
+            output_type="bool",
+            operand=self._constant_index(False if is_and else True),
+            span=expression.span,
+        )
+        if short_value is None:
+            raise RuntimeError("Short-circuit constant did not produce a value.")
+        self._terminate(IRJump(join_id, (short_value,), False, self._location(expression.span)))
+
+        self._set_current(right_id)
+        right_value = self._compile_value(expression.right)
+        if self._current is not None:
+            self._terminate(IRJump(join_id, (right_value,), False, self._location(expression.right.span)))
+
+        self._set_current(join_id)
+        return join_value
 
     def _compile_expression(self, expression: Expression) -> int | None:
         result_type = self._type_of(expression)
@@ -721,19 +835,22 @@ class ASTToIR:
                 span=expression.span,
             )
         elif isinstance(expression, BinaryExpression):
-            left = self._compile_value(expression.left)
-            right = self._compile_value(expression.right)
-            opcode = _BINARY_OPCODES.get(expression.operator.token_type)
-            if opcode is None:
-                raise ValueError(
-                    f"Unsupported binary operator '{expression.operator.lexeme}'."
+            if expression.operator.token_type in (TokenType.AND, TokenType.OR):
+                result = self._compile_short_circuit(expression)
+            else:
+                left = self._compile_value(expression.left)
+                right = self._compile_value(expression.right)
+                opcode = _BINARY_OPCODES.get(expression.operator.token_type)
+                if opcode is None:
+                    raise ValueError(
+                        f"Unsupported binary operator '{expression.operator.lexeme}'."
+                    )
+                result = self._emit(
+                    opcode,
+                    (left, right),
+                    output_type=result_type,
+                    span=expression.span,
                 )
-            result = self._emit(
-                opcode,
-                (left, right),
-                output_type=result_type,
-                span=expression.span,
-            )
         elif isinstance(expression, FunctionCallExpression):
             if self._semantic is None:
                 raise RuntimeError("ASTToIR has no active semantic result.")

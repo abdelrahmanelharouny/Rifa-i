@@ -1,4 +1,4 @@
-# Rifa'i Language Specification (Version 3.0 — Phase 15)
+# Rifa'i Language Specification (Version 3.1 — Phase 16)
 
 Rifa'i (.rif) is a statically typed, block-structured language compiled into portable stack bytecode (.rbc) and executed by the Rifa'i VM. Phase 15 adds relative source modules, nominal records and enums, inferred local variables, an expanded standard library, and capability-controlled text file I/O.
 
@@ -6,7 +6,7 @@ Rifa'i (.rif) is a statically typed, block-structured language compiled into por
 
 Source files are UTF-8 .rif files. LF and CRLF line endings are supported. Coordinates are one-based. Whitespace is ignored; // starts a line comment. Identifiers match ASCII letters/underscores followed by ASCII letters, digits, or underscores, and are case-sensitive.
 
-Reserved keywords include import, struct, enum, fn, let, return, if, else, while, print, true, false, int, float, bool, string, void, and, or, and not. Standard-library function names are reserved and cannot be declared as variables, parameters, functions, or nominal types.
+Reserved keywords include import, struct, enum, fn, let, return, if, else, while, for, break, continue, print, true, false, int, float, bool, string, void, and, or, and not. Standard-library function names are reserved and cannot be declared as variables, parameters, functions, or nominal types.
 
 Integer literals contain decimal digits; floats have digits on both sides of a decimal point. Double-quoted strings support escaped quote, backslash, newline, tab, and carriage return.
 
@@ -84,13 +84,13 @@ Function signatures are collected before function bodies, so recursion, mutual r
 
 Variables must be declared before use. Duplicate names in one lexical scope are rejected; nested blocks may shadow outer variables. Function parameters share the function body's outermost scope.
 
-if and while conditions must be bool. Top-level return is invalid. A void function may return without a value or fall through; a non-void function must return a matching value on all execution paths.
+if, while, and present for-loop conditions must be bool. A for loop uses C-style clauses: for (initializer; condition; increment) { ... }. Each clause is optional; an omitted condition is treated as true. The initializer may be a let declaration, assignment, or expression statement. A variable declared in the initializer is visible in the condition, increment, and body, but not after the loop. break and continue are allowed only inside loops and always target the innermost enclosing loop. In a for loop, continue executes the increment clause before checking the condition again. Top-level return is invalid. A void function may return without a value or fall through; a non-void function must return a matching value on all execution paths.
 
 ## 5. Operators
 
 Arithmetic is strict: + accepts matching int, float, or string operands; - and * accept matching numeric operands; / accepts matching numeric operands and returns float; % accepts int only. Mixed int/float arithmetic is not implicit.
 
-Relational operators (<, >, <=, >=) require matching numeric operands. Equality (==, !=) is defined for matching primitive scalar types and matching enum types; it is not defined for structs or arrays. Logical and and or require booleans and eagerly evaluate both operands. Unary - accepts numbers, and not accepts booleans.
+Relational operators (<, >, <=, >=) require matching numeric operands. Equality (==, !=) is defined for matching primitive scalar types and matching enum types; it is not defined for structs or arrays. Logical and and or require booleans and use short-circuit evaluation: and skips its right operand when the left operand is false, while or skips its right operand when the left operand is true. Unary - accepts numbers, and not accepts booleans.
 
 Precedence, from highest to lowest: primary and postfix access; unary; multiplication/division/modulo; addition/subtraction; relational comparison; equality; logical AND; logical OR. Binary operators are left-associative; unary operators are right-associative.
 
@@ -136,4 +136,4 @@ Bytecode v5 introduces STRUCT_NEW, FIELD_GET, FIELD_SET, and ENUM_NEW, and permi
 
 ## 9. Evaluation order and runtime limits
 
-Operands are evaluated eagerly from left to right. Logical and/or are not short-circuiting in this version. The VM enforces configurable limits on executed instructions, stack depth, call depth, local-frame size, integer bit length, string length, array items, output size, and file bytes. Malformed bytecode is verified before execution.
+Ordinary binary operands are evaluated eagerly from left to right. Logical and/or conditionally evaluate the right operand using compiler-generated control flow. The VM enforces configurable limits on executed instructions, stack depth, call depth, local-frame size, integer bit length, string length, array items, output size, and file bytes. Malformed bytecode is verified before execution.

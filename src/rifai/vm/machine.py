@@ -173,8 +173,26 @@ class VirtualMachine:
         for name, value in (initial_globals or {}).items():
             if not isinstance(name, str) or not name:
                 raise ValueError("Initial global names must be non-empty strings.")
-            if type(value) not in (int, float, bool, str) and not isinstance(value, ArrayValue):
+            if type(value) not in (int, float, bool, str) and not isinstance(value, (ArrayValue, StructValue, EnumValue)):
                 raise ValueError(f"Initial global {name!r} has an unsupported value.")
+            if isinstance(value, (StructValue, EnumValue)) and not self._matches_type(value, value.type_name):
+                raise ValueError(f"Initial global {name!r} has an invalid nominal value.")
+            if isinstance(value, StructValue):
+                if (
+                    not isinstance(value.field_types, dict)
+                    or not isinstance(value.fields, dict)
+                    or any(
+                        field not in value.field_types
+                        or not isinstance(value.field_types[field], str)
+                        or not self._matches_type(field_value, value.field_types[field])
+                        for field, field_value in value.fields.items()
+                    )
+                ):
+                    raise ValueError(f"Initial global {name!r} has an invalid struct schema or field value.")
+            if isinstance(value, EnumValue) and (
+                not isinstance(value.variant, str) or not value.variant
+            ):
+                raise ValueError(f"Initial global {name!r} has an invalid enum variant.")
             if isinstance(value, ArrayValue):
                 if value.element_type not in {"int", "float", "bool", "string"}:
                     raise ValueError(f"Initial global {name!r} has an invalid array element type.")
@@ -598,6 +616,36 @@ class VirtualMachine:
                     args = stack[-arity:] if arity else []
                     if arity:
                         del stack[-arity:]
+
+                    def require_builtin_type(index: int, expected: str) -> None:
+                        if index >= len(args) or not self._matches_type(args[index], expected):
+                            raise fault(
+                                f"Standard-library function '{name}' expects argument {index + 1} to be {expected}.",
+                                instruction,
+                            )
+
+                    if name in ("abs", "sqrt", "round", "to_int", "to_float"):
+                        if type(args[0]) not in (int, float):
+                            raise fault(f"'{name}' expects a numeric argument.", instruction)
+                    elif name in ("min", "max"):
+                        if (
+                            type(args[0]) not in (int, float)
+                            or type(args[1]) is not type(args[0])
+                        ):
+                            raise fault(f"'{name}' expects two matching numeric arguments.", instruction)
+                    elif name in ("contains", "starts_with", "ends_with"):
+                        require_builtin_type(0, "string")
+                        require_builtin_type(1, "string")
+                    elif name == "substring":
+                        require_builtin_type(0, "string")
+                        require_builtin_type(1, "int")
+                        require_builtin_type(2, "int")
+                    elif name in ("read_text", "file_exists"):
+                        require_builtin_type(0, "string")
+                    elif name == "write_text":
+                        require_builtin_type(0, "string")
+                        require_builtin_type(1, "string")
+
                     try:
                         if name == "abs":
                             value = abs(args[0])
@@ -635,6 +683,8 @@ class VirtualMachine:
                                     if target_path.stat().st_size > self.max_file_bytes:
                                         raise fault(f"File exceeds the configured read limit ({self.max_file_bytes} bytes).", instruction)
                                     value = target_path.read_text(encoding="utf-8")
+                                    if len(value.encode("utf-8")) > self.max_file_bytes:
+                                        raise fault(f"File exceeds the configured read limit ({self.max_file_bytes} bytes).", instruction)
                                 except UnicodeDecodeError:
                                     raise fault("File is not valid UTF-8 text.", instruction) from None
                                 except OSError as exc:

@@ -113,8 +113,8 @@ fn mark() -> bool {
     called = called + 1;
     return true;
 }
-print(false and (1 / 0 > 0));
-print(true or (1 / 0 > 0));
+print(false and (1 / 0 > 0.0));
+print(true or (1 / 0 > 0.0));
 print(false and (true or mark()));
 print(true or (false and mark()));
 print(called);

@@ -836,7 +836,32 @@ class SemanticAnalyzer:
 
         return RifaiType.ERROR
 
-    def _analyze_call(self, expr: FunctionCallExpression) -> RifaiType:
+    def _analyze_call(self, expr: FunctionCallExpression) -> StaticType:
+        struct = self._struct_declarations.get(expr.callee)
+        if struct is not None:
+            if len(expr.arguments) != len(struct.fields):
+                self._error(
+                    expr.span,
+                    f"Struct '{expr.callee}' expects {len(struct.fields)} field value(s), got {len(expr.arguments)}.",
+                )
+            for index, argument in enumerate(expr.arguments):
+                actual = self._analyze_expression(argument)
+                if index < len(struct.fields):
+                    expected = self._resolve_type(struct.fields[index].type_annotation.name)
+                    if expected is not None and not is_error_type(actual) and actual != expected:
+                        self._error(
+                            argument.span,
+                            f"Field '{struct.fields[index].name}' expects '{expected.value}', got '{actual.value}'.",
+                        )
+            self._constructor_bindings[id(expr)] = struct
+            return self._nominal_types[struct.name]
+
+        if expr.callee in {
+            "abs", "min", "max", "sqrt", "round", "to_int", "to_float",
+            "to_string", "contains", "starts_with", "ends_with", "substring",
+            "read_text", "write_text", "file_exists",
+        }:
+            return self._analyze_standard_library_call(expr)
         if expr.callee == "len":
             argument_types = [
                 self._analyze_expression(arg) for arg in expr.arguments
@@ -945,6 +970,91 @@ class SemanticAnalyzer:
                     f"expects '{expected.value}', got '{arg_type.value}'.",
                 )
         return symbol.return_type
+
+    def _analyze_standard_library_call(self, expr: FunctionCallExpression) -> StaticType:
+        name = expr.callee
+        arguments = [self._analyze_expression(item) for item in expr.arguments]
+
+        def arity(expected: int) -> bool:
+            if len(arguments) != expected:
+                self._error(expr.span, f"'{name}' expects {expected} argument(s), got {len(arguments)}.")
+                return False
+            return True
+
+        def require(index: int, accepted: tuple[StaticType, ...], description: str) -> bool:
+            if index >= len(arguments) or is_error_type(arguments[index]):
+                return False
+            if arguments[index] not in accepted:
+                self._error(
+                    expr.arguments[index].span,
+                    f"'{name}' expects {description}, got '{arguments[index].value}'.",
+                )
+                return False
+            return True
+
+        numeric = (RifaiType.INT, RifaiType.FLOAT)
+        if name == "abs":
+            if not arity(1):
+                return RifaiType.ERROR
+            return arguments[0] if require(0, numeric, "an int or float") else RifaiType.ERROR
+        if name in ("min", "max"):
+            if not arity(2):
+                return RifaiType.ERROR
+            ok = require(0, numeric, "matching numeric values") and require(1, numeric, "matching numeric values")
+            if ok and arguments[0] != arguments[1]:
+                self._error(expr.span, f"'{name}' arguments must have the same numeric type.")
+                ok = False
+            return arguments[0] if ok else RifaiType.ERROR
+        if name == "sqrt":
+            if not arity(1):
+                return RifaiType.ERROR
+            return RifaiType.FLOAT if require(0, numeric, "an int or float") else RifaiType.ERROR
+        if name == "round":
+            if not arity(1):
+                return RifaiType.ERROR
+            return RifaiType.INT if require(0, numeric, "an int or float") else RifaiType.ERROR
+        if name == "to_int":
+            if not arity(1):
+                return RifaiType.ERROR
+            return RifaiType.INT if require(0, numeric, "an int or float") else RifaiType.ERROR
+        if name == "to_float":
+            if not arity(1):
+                return RifaiType.ERROR
+            return RifaiType.FLOAT if require(0, numeric, "an int or float") else RifaiType.ERROR
+        if name == "to_string":
+            if not arity(1):
+                return RifaiType.ERROR
+            if arguments[0] is RifaiType.VOID:
+                self._error(expr.arguments[0].span, "'to_string' cannot convert void.")
+                return RifaiType.ERROR
+            return RifaiType.STRING
+        if name in ("contains", "starts_with", "ends_with"):
+            if not arity(2):
+                return RifaiType.ERROR
+            ok = require(0, (RifaiType.STRING,), "a string") and require(1, (RifaiType.STRING,), "a string")
+            return RifaiType.BOOL if ok else RifaiType.ERROR
+        if name == "substring":
+            if not arity(3):
+                return RifaiType.ERROR
+            ok = (
+                require(0, (RifaiType.STRING,), "a string")
+                and require(1, (RifaiType.INT,), "an integer start index")
+                and require(2, (RifaiType.INT,), "an integer end index")
+            )
+            return RifaiType.STRING if ok else RifaiType.ERROR
+        if name in ("read_text", "file_exists"):
+            if not arity(1):
+                return RifaiType.ERROR
+            if not require(0, (RifaiType.STRING,), "a relative path string"):
+                return RifaiType.ERROR
+            return RifaiType.STRING if name == "read_text" else RifaiType.BOOL
+        if name == "write_text":
+            if not arity(2):
+                return RifaiType.ERROR
+            ok = require(0, (RifaiType.STRING,), "a relative path string")
+            ok = require(1, (RifaiType.STRING,), "text content") and ok
+            return RifaiType.BOOL if ok else RifaiType.ERROR
+        return RifaiType.ERROR
 
     # --- Control-flow return analysis ----------------------------------------
 

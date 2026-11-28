@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields, is_dataclass, replace
+from pathlib import Path
 
 from rifai.bytecode.module import BytecodeModule
 from rifai.bytecode.optimizer import BytecodeOptimizer, OptimizationStats
 from rifai.bytecode.verifier import BytecodeVerifier
 from rifai.errors.diagnostics import Diagnostic, DiagnosticPhase
+from rifai.frontend.ast_nodes import ImportDeclaration, Program, SourceSpan
+from rifai.frontend.tokens import Token
 from rifai.frontend.lexer import Lexer
 from rifai.frontend.parser import Parser
 from rifai.frontend.semantic import SemanticAnalyzer
@@ -54,6 +57,214 @@ class Compiler:
         self.optimize = optimize
         self.ir_optimize = optimize if ir_optimize is None else ir_optimize
 
+    @staticmethod
+    def _remap_module_locations(value, line_offset: int, char_offset: int):
+        """Translate AST token/spans into the flattened debug source coordinate space."""
+        if isinstance(value, Token):
+            return replace(
+                value,
+                line=value.line + line_offset,
+                start_offset=value.start_offset + char_offset,
+                end_offset=value.end_offset + char_offset,
+            )
+        if isinstance(value, SourceSpan):
+            return replace(
+                value,
+                line=value.line + line_offset,
+                start_offset=value.start_offset + char_offset,
+                end_offset=value.end_offset + char_offset,
+            )
+        if isinstance(value, tuple):
+            return tuple(
+                Compiler._remap_module_locations(item, line_offset, char_offset)
+                for item in value
+            )
+        if is_dataclass(value):
+            return replace(
+                value,
+                **{
+                    item.name: Compiler._remap_module_locations(
+                        getattr(value, item.name), line_offset, char_offset
+                    )
+                    for item in fields(value)
+                },
+            )
+        return value
+
+    def _expand_imports(
+        self,
+        program: Program,
+        source: str,
+        source_name: str | None,
+    ) -> tuple[Program, str, tuple[Diagnostic, ...]]:
+        imports = [
+            item for item in program.declarations
+            if isinstance(item, ImportDeclaration)
+        ]
+        if not imports:
+            return program, source, ()
+        if not source_name or source_name.startswith("<"):
+            first = imports[0]
+            diagnostic = Diagnostic(
+                phase=DiagnosticPhase.PARSER,
+                message="Source imports require compiling from a .rif file path.",
+                line=first.span.line,
+                column=first.span.column,
+                start_offset=first.span.start_offset,
+                end_offset=first.span.end_offset,
+            )
+            return program, source, (diagnostic,)
+
+        root_path = Path(source_name).expanduser().resolve()
+        root_directory = root_path.parent
+        visited: set[Path] = set()
+        visiting: set[Path] = set()
+        ordered: list[tuple[Path, str, Program]] = []
+        diagnostics: list[Diagnostic] = []
+        total_chars = 0
+        max_modules = 128
+        max_source_chars = 5 * 1024 * 1024
+
+        def visit(path: Path, module_source: str, module_program: Program) -> None:
+            nonlocal total_chars
+            resolved = path.resolve()
+            if resolved in visiting:
+                diagnostics.append(Diagnostic(
+                    phase=DiagnosticPhase.PARSER,
+                    message=f"Import cycle detected at '{resolved}'.",
+                    line=1,
+                    column=1,
+                ))
+                return
+            if resolved in visited:
+                return
+            if len(visited) + len(visiting) >= max_modules:
+                diagnostics.append(Diagnostic(
+                    phase=DiagnosticPhase.PARSER,
+                    message=f"Module graph exceeds the limit ({max_modules} source files).",
+                    line=1,
+                    column=1,
+                ))
+                return
+            total_chars += len(module_source)
+            if total_chars > max_source_chars:
+                diagnostics.append(Diagnostic(
+                    phase=DiagnosticPhase.PARSER,
+                    message=f"Combined module source exceeds the limit ({max_source_chars} characters).",
+                    line=1,
+                    column=1,
+                ))
+                return
+
+            visiting.add(resolved)
+            for declaration in module_program.declarations:
+                if not isinstance(declaration, ImportDeclaration):
+                    continue
+                relative = Path(declaration.path)
+                if (
+                    relative.is_absolute()
+                    or not declaration.path
+                    or ".." in relative.parts
+                    or relative.suffix.lower() != ".rif"
+                ):
+                    diagnostics.append(Diagnostic(
+                        phase=DiagnosticPhase.PARSER,
+                        message="Imports must use a relative .rif path without parent-directory segments.",
+                        line=declaration.span.line,
+                        column=declaration.span.column,
+                        start_offset=declaration.span.start_offset,
+                        end_offset=declaration.span.end_offset,
+                    ))
+                    continue
+                candidate = (resolved.parent / relative).resolve()
+                try:
+                    candidate.relative_to(root_directory)
+                except ValueError:
+                    diagnostics.append(Diagnostic(
+                        phase=DiagnosticPhase.PARSER,
+                        message=f"Import '{declaration.path}' escapes the root project directory.",
+                        line=declaration.span.line,
+                        column=declaration.span.column,
+                        start_offset=declaration.span.start_offset,
+                        end_offset=declaration.span.end_offset,
+                    ))
+                    continue
+                if not candidate.is_file():
+                    diagnostics.append(Diagnostic(
+                        phase=DiagnosticPhase.PARSER,
+                        message=f"Imported source file '{declaration.path}' does not exist.",
+                        line=declaration.span.line,
+                        column=declaration.span.column,
+                        start_offset=declaration.span.start_offset,
+                        end_offset=declaration.span.end_offset,
+                    ))
+                    continue
+                try:
+                    imported_source = candidate.read_text(encoding="utf-8")
+                except (OSError, UnicodeDecodeError) as exc:
+                    diagnostics.append(Diagnostic(
+                        phase=DiagnosticPhase.PARSER,
+                        message=f"Could not read imported module '{candidate}': {exc}.",
+                        line=declaration.span.line,
+                        column=declaration.span.column,
+                    ))
+                    continue
+                imported_lex = Lexer(imported_source).scan_tokens()
+                if imported_lex.has_errors:
+                    diagnostics.extend(
+                        replace(item, message=f"{candidate}: {item.message}")
+                        for item in imported_lex.diagnostics
+                    )
+                    continue
+                imported_parse = Parser(imported_lex.tokens).parse()
+                if imported_parse.has_errors:
+                    diagnostics.extend(
+                        replace(item, message=f"{candidate}: {item.message}")
+                        for item in imported_parse.diagnostics
+                    )
+                    continue
+                visit(candidate, imported_source, imported_parse.program)
+            visiting.remove(resolved)
+            visited.add(resolved)
+            ordered.append((resolved, module_source, module_program))
+
+        visit(root_path, source, program)
+        if diagnostics:
+            return program, source, tuple(diagnostics)
+
+        flattened: list = []
+        composite_parts: list[str] = []
+        composite_length = 0
+        composite_lines = 0
+        for path, module_source, module_program in ordered:
+            label = f"// module: {path.relative_to(root_directory).as_posix()}\n"
+            prefix = label
+            line_offset = composite_lines + prefix.count("\n")
+            char_offset = composite_length + len(prefix)
+            composite_parts.append(prefix)
+            composite_parts.append(module_source)
+            if not module_source.endswith("\n"):
+                composite_parts.append("\n")
+            composite_length += len(prefix) + len(module_source) + (
+                0 if module_source.endswith("\n") else 1
+            )
+            composite_lines += prefix.count("\n") + module_source.count("\n") + (
+                0 if module_source.endswith("\n") else 1
+            )
+            for declaration in module_program.declarations:
+                if not isinstance(declaration, ImportDeclaration):
+                    flattened.append(
+                        self._remap_module_locations(
+                            declaration, line_offset, char_offset
+                        )
+                    )
+        combined_source = "".join(composite_parts)
+        combined_program = replace(
+            program,
+            declarations=tuple(flattened),
+        )
+        return combined_program, combined_source, ()
+
     def compile(
         self,
         source: str,
@@ -68,16 +279,24 @@ class Compiler:
         if parse_result.has_errors:
             return CompilationResult(None, parse_result.diagnostics)
 
-        semantic_result = SemanticAnalyzer().analyze(parse_result.program)
+        expanded_program, debug_source, import_diagnostics = self._expand_imports(
+            parse_result.program,
+            source,
+            source_name,
+        )
+        if import_diagnostics:
+            return CompilationResult(None, import_diagnostics)
+
+        semantic_result = SemanticAnalyzer().analyze(expanded_program)
         if not semantic_result.is_valid:
             return CompilationResult(None, semantic_result.diagnostics)
 
         try:
             ir_result = IRPipeline().run_ast(
-                parse_result.program,
+                expanded_program,
                 semantic_result,
                 source_name=source_name,
-                source_text=source,
+                source_text=debug_source,
                 optimize=self.ir_optimize,
             )
         except (TypeError, ValueError, RuntimeError, KeyError, IndexError) as exc:

@@ -1,0 +1,37 @@
+// Phase 18: inferred generic functions and compile-time specialization.
+
+struct Box { value: int }
+enum Maybe { Some(int), None }
+
+fn identity<T>(value: T) -> T {
+    return value;
+}
+
+fn first<T>(items: T[]) -> T {
+    return items[0];
+}
+
+fn wrap<T>(value: T) -> T {
+    return identity(value);
+}
+
+fn combine<T>(left: T, right: T) -> T {
+    return left + right;
+}
+
+let number = wrap(42);
+let message = identity("Rifa'i generics");
+let numbers = [10, 20, 30];
+let head = first(numbers);
+let box = identity(Box(7));
+let maybe = identity(Maybe.Some(9));
+
+print(to_string(number));
+print(message);
+print(to_string(head));
+print(to_string(box.value));
+print(match (maybe) {
+    Maybe.Some(value) => "some=" + to_string(value),
+    Maybe.None => "none",
+});
+print(to_string(combine(4, 6)));

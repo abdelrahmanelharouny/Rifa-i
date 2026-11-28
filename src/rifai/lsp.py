@@ -13,6 +13,7 @@ from rifai.frontend.ast_nodes import ASTNode, AssignmentStatement, FunctionCallE
 from rifai.frontend.lexer import LexResult, Lexer
 from rifai.frontend.parser import Parser
 from rifai.frontend.semantic import SemanticAnalyzer
+from rifai.frontend.generics import GenericSpecializer
 from rifai.frontend.symbol_table import FunctionSymbol, VariableSymbol
 from rifai.frontend.tokens import Token, TokenType
 
@@ -63,8 +64,11 @@ def _analyze(source: str) -> Analysis:
     parsed = Parser(lex.tokens).parse()
     if parsed.has_errors:
         return Analysis(source, lex, parsed.program, None, parsed.diagnostics)
-    semantic = SemanticAnalyzer().analyze(parsed.program)
-    return Analysis(source, lex, parsed.program, semantic, semantic.diagnostics)
+    specialized = GenericSpecializer().specialize(parsed.program)
+    if not specialized.is_valid:
+        return Analysis(source, lex, parsed.program, None, specialized.diagnostics)
+    semantic = SemanticAnalyzer().analyze(specialized.program)
+    return Analysis(source, lex, specialized.program, semantic, semantic.diagnostics)
 
 
 def _walk(node: ASTNode):
@@ -79,9 +83,16 @@ def _walk(node: ASTNode):
                     yield from _walk(item)
 
 
+def _display_function_name(name: str) -> str:
+    prefix = "__rifai_generic_"
+    if name.startswith(prefix):
+        return name[len(prefix):].rsplit("_", 1)[0]
+    return name
+
+
 def _signature(symbol: FunctionSymbol) -> str:
     args = ", ".join(f"{p.name}: {p.rifai_type.value}" for p in symbol.params)
-    return f"{symbol.name}({args}) -> {symbol.return_type.value}"
+    return f"{_display_function_name(symbol.name)}({args}) -> {symbol.return_type.value}"
 
 
 def _line_starts(source: str) -> list[int]:
@@ -309,8 +320,9 @@ class LanguageServer:
                             symbols.setdefault(symbol.name, symbol)
         for name, symbol in sorted(symbols.items()):
             if isinstance(symbol, FunctionSymbol):
-                items.append({"label": _signature(symbol), "filterText": name, "kind": 3,
-                              "detail": "function", "insertText": name, "sortText": "0" + name})
+                display_name = _display_function_name(name)
+                items.append({"label": _signature(symbol), "filterText": display_name, "kind": 3,
+                              "detail": "function", "insertText": display_name, "sortText": "0" + display_name})
             else:
                 items.append({"label": name, "kind": 6, "detail": _symbol_detail(symbol),
                               "insertText": name, "sortText": "0" + name})

@@ -13,10 +13,11 @@ from rifai import __version__
 from rifai.bytecode.cfg import analyze_module_control_flow
 from rifai.bytecode.disassembler import disassemble
 from rifai.compiler import Compiler
-from rifai.frontend.ast_nodes import ASTNode
+from rifai.frontend.ast_nodes import ASTNode, FunctionDeclaration
 from rifai.frontend.lexer import Lexer
 from rifai.frontend.parser import Parser
 from rifai.frontend.semantic import SemanticAnalyzer
+from rifai.frontend.generics import GenericSpecializer
 from rifai.frontend.tokens import Token
 
 
@@ -146,9 +147,43 @@ def inspect_source(
         result["diagnostics"] = _diagnostics(parsed.diagnostics)
         return result
 
-    semantic = SemanticAnalyzer().analyze(parsed.program)
+    specialization = GenericSpecializer().specialize(parsed.program)
+    generic_templates = [
+        declaration for declaration in parsed.program.declarations
+        if isinstance(declaration, FunctionDeclaration) and declaration.type_parameters
+    ]
+    specialized_functions = [
+        declaration for declaration in specialization.program.declarations
+        if isinstance(declaration, FunctionDeclaration)
+        and declaration.name.startswith("__rifai_generic_")
+    ]
+    result["stages"]["generics"] = {
+        "success": specialization.is_valid,
+        "generic_functions": [
+            {
+                "name": function.name,
+                "type_parameters": [item.lexeme for item in function.type_parameters],
+            }
+            for function in generic_templates
+        ],
+        "specialization_count": len(specialized_functions),
+        "specializations": [
+            {
+                "name": function.name,
+                "parameter_types": [parameter.type_annotation.name for parameter in function.params],
+                "return_type": function.return_type.name,
+            }
+            for function in specialized_functions
+        ],
+    }
+    if not specialization.is_valid:
+        result["diagnostics"] = _diagnostics(specialization.diagnostics)
+        return result
+
+    analysis_program = specialization.program
+    semantic = SemanticAnalyzer().analyze(analysis_program)
     expression_types = []
-    for node in _walk(parsed.program):
+    for node in _walk(analysis_program):
         if hasattr(node, "span"):
             rifai_type = semantic.expression_types.get(id(node))
             if rifai_type is not None:

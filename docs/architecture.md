@@ -14,6 +14,9 @@ Rifa'i is a statically typed language implemented in Python. Its compiler transl
   Recursive-Descent Parser ---------- Phase 2
       | immutable AST
       v
+  Generic Specializer --------------- Phase 18
+      | inferred type arguments + concrete function instances
+      v
   Semantic Analyzer ---------------- Phase 2
       | type information + exact symbol bindings
       v
@@ -40,11 +43,11 @@ Rifa'i is a statically typed language implemented in Python. Its compiler transl
   Program result
 ```
 
-Compiler.compile() now orchestrates the frontend, direct AST-to-IR lowering, IR verification/optimization/analysis, IR-to-bytecode lowering, optional target-specific bytecode cleanup, and final bytecode verification. It stops at the first failing phase and returns structured diagnostics. The normal source-compilation path no longer generates bytecode as an intermediate input to IR. BytecodeToIR remains available for lifting existing verified modules, compatibility checks, and round-trip tooling.
+Compiler.compile() orchestrates lexing/parsing, compile-time generic monomorphization, semantic analysis, direct AST-to-IR lowering, IR verification/optimization/analysis, IR-to-bytecode lowering, optional target-specific bytecode cleanup, and final bytecode verification. It stops at the first failing phase and returns structured diagnostics. Generic specialization emits ordinary concrete function declarations before semantic binding; no generic opcode or runtime type dispatch is introduced. The normal source-compilation path no longer generates bytecode as an intermediate input to IR. BytecodeToIR remains available for lifting existing verified modules, compatibility checks, and round-trip tooling.
 
 ## 2. Package Layout
 
-- rifai/frontend/: Token models, Lexer, immutable AST, Parser, types, symbol table, and Semantic Analyzer.
+- rifai/frontend/: Token models, Lexer, immutable AST, Parser, generic-function specializer, types, symbol table, and Semantic Analyzer.
 - rifai/bytecode/instructions.py: Opcode definitions, operand contracts, and stack effects.
 - rifai/bytecode/chunk.py: Main/function code chunks and function signature metadata.
 - rifai/bytecode/module.py: Bytecode module, constants, version information, and function table.
@@ -63,7 +66,15 @@ Compiler.compile() now orchestrates the frontend, direct AST-to-IR lowering, IR 
 - rifai/vm/runtime.py: Runtime results and diagnostics.
 - rifai/cli.py: Frontend inspection, compilation, disassembly, and execution commands.
 
-## 3. Code Generation
+## 3. Compile-Time Generics
+
+Phase 18 accepts function type parameters such as `fn identity<T>(value: T) -> T`. At each call, the GenericSpecializer infers type arguments from concrete argument expressions and creates a deterministic specialization keyed by the generic function and ordered type tuple. Repeated calls with the same tuple reuse the same generated declaration. A specialization is cached before its body is recursively rewritten, which supports self-recursion and generic-to-generic calls.
+
+The specializer substitutes type variables in parameter, return, and local annotations, tracks concrete local types through lexical scopes, and rewrites generic calls to their specialized function names. The ordinary SemanticAnalyzer then validates the specialized body using existing type and symbol rules. Each specialization reaches ASTToIR as a normal function, so IR verification, optimization, bytecode generation, debugger metadata, and VM call-frame checks need no generic-specific behavior.
+
+Inference failures, conflicting type arguments, non-inferable type parameters, and unsupported nested arrays produce source diagnostics before IR lowering. Generic instantiations are compile-time artifacts and are not represented in serialized bytecode metadata.
+
+## 4. Code Generation
 
 ASTToIR receives the exact Program object and corresponding SemanticResult. It consumes identity-keyed semantic bindings for declarations, assignments, variable references, function declarations, and function calls. It does not redo scope lookup or infer source types.
 
@@ -73,7 +84,7 @@ Expressions become typed virtual values and explicit-input operations. If/else-i
 
 Logical and/or retain eager evaluation semantics in version 1: the left operand is evaluated before the right operand and the logical opcode.
 
-## 4. Function Calls and VM Frames
+## 5. Function Calls and VM Frames
 
 A version 2 bytecode module contains one main chunk and a function table. Each function table entry stores a function name, parameter types, return type, and code chunk. The first arity local slots are reserved for parameters, in declaration order.
 

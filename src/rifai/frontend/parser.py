@@ -280,6 +280,13 @@ class Parser:
     def _parse_function_declaration(self) -> FunctionDeclaration:
         fn_token = self._consume(TokenType.FN, "Expected 'fn' keyword.")
         name_token = self._consume(TokenType.IDENTIFIER, "Expected function name.")
+        type_parameters: list[Token] = []
+        if self._match(TokenType.LESS) is not None:
+            while True:
+                type_parameters.append(self._consume(TokenType.IDENTIFIER, "Expected generic type parameter name."))
+                if self._match(TokenType.COMMA) is None:
+                    break
+            self._consume(TokenType.GREATER, "Expected '>' after generic type parameters.")
         self._consume(TokenType.LEFT_PAREN, "Expected '(' after function name.")
 
         params: list[Parameter] = []
@@ -315,6 +322,7 @@ class Parser:
             return_type=return_type,
             body=body,
             span=SourceSpan.between(fn_token, body.span),
+            type_parameters=tuple(type_parameters),
         )
 
     def _parse_type_annotation(self, message: str) -> TypeAnnotation:
@@ -329,6 +337,7 @@ class Parser:
                     TokenType.TYPE_FLOAT,
                     TokenType.TYPE_BOOL,
                     TokenType.TYPE_STRING,
+                    TokenType.IDENTIFIER,
                 }
                 and self._match(TokenType.LEFT_BRACKET) is not None
             ):

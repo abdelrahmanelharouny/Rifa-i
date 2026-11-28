@@ -91,6 +91,17 @@ def test_completion_hover_definition_and_references() -> None:
     assert len(references) == 2
 
 
+
+def test_generic_functions_receive_live_semantic_diagnostics_and_signature_help() -> None:
+    source = """fn identity<T>(value: T) -> T { return value; }\nlet answer = identity(5);\n"""
+    server = LanguageServer()
+    uri = _open(server, source)
+    assert server.documents[uri].analysis.diagnostics == ()
+    position = _position(source, "identity(5)")
+    hover = server.handle_request("textDocument/hover", _params(uri, position))
+    assert hover is not None
+    assert "int" in hover["contents"]["value"]
+
 def test_document_symbols_include_functions_and_globals() -> None:
     server = LanguageServer()
     uri = _open(server)

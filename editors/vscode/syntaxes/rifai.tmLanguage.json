@@ -70,7 +70,20 @@
           "name": "entity.name.function.rifai"
         }
       },
-      "end": "(?=\\{)"
+      "end": "(?=\\{)",
+      "patterns": [
+        {
+          "name": "meta.generic.parameters.rifai",
+          "begin": "<",
+          "end": ">",
+          "patterns": [
+            {
+              "name": "entity.name.type.parameter.rifai",
+              "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b"
+            }
+          ]
+        }
+      ]
     },
     "function-calls": {
       "patterns": [

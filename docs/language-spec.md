@@ -1,6 +1,6 @@
-# Rifa'i Language Specification (Version 3.2 — Phase 17)
+# Rifa'i Language Specification (Version 3.3 — Phase 18)
 
-Rifa'i (.rif) is a statically typed, block-structured language compiled into portable stack bytecode (.rbc) and executed by the Rifa'i VM. Phase 15 adds relative source modules, nominal records and enums, inferred local variables, an expanded standard library, and capability-controlled text file I/O.
+Rifa'i (.rif) is a statically typed, block-structured language compiled into portable stack bytecode (.rbc) and executed by the Rifa'i VM. The language includes relative source modules, nominal records and algebraic enums, exhaustive matching, inferred local variables, generic functions with compile-time type inference, and capability-controlled text file I/O.
 
 ## 1. Lexical structure
 
@@ -96,6 +96,35 @@ Import compilation requires a real source-file path. Calling Compiler.compile() 
 
 ## 4. Functions, scopes, and control flow
 
+### Generic functions
+
+Functions may declare one or more type parameters immediately after their name. The compiler infers each type argument from the call's actual arguments:
+
+~~~rif
+fn identity<T>(value: T) -> T {
+    return value;
+}
+
+fn first<T>(items: T[]) -> T {
+    return items[0];
+}
+
+fn choose<T>(left: T, right: T) -> T {
+    if (true) { return left; }
+    return right;
+}
+
+let number = identity(42);
+let greeting = identity("hello");
+let head = first([10, 20, 30]);
+~~~
+
+A type parameter can represent a primitive type, an existing typed array value, a struct, or an enum. In a parameter annotation, `T[]` means an array of the inferred primitive element type, such as `int[]`. Multiple parameters may use the same type variable; all corresponding arguments must infer the same concrete type. Separate calls may produce separate instances, while calls with the same type arguments reuse one instance.
+
+Generic type parameters must appear in at least one parameter type so that a call can infer them. An empty array literal carries no element type and therefore cannot infer `T`; pass a typed array variable or a non-empty array literal. Generic parameters are not explicit call-site type arguments: this phase uses inference from arguments. Generic structs, generic enums, and user-defined type bounds are not part of this phase.
+
+The compiler performs compile-time monomorphization before ordinary semantic analysis. Each inferred type tuple creates a deterministic concrete function instance. That instance is checked using the normal static type rules and then lowered through the regular IR and bytecode pipeline. There is no generic runtime dispatch, erased type representation, or additional VM instruction cost. Operations in a generic body are validated for every concrete instantiation; for example, arithmetic on `T` is accepted only when the inferred concrete type supports that operator.
+
 Functions are top-level declarations:
 
 ~~~rif
@@ -155,6 +184,8 @@ The CLI and debuggers grant this capability only within the launched program's p
 Arrays are homogeneous, one-dimensional reference values. Non-empty literals infer their element type; empty literals need an explicit type annotation. Indexes are zero-based integers. Reads and writes outside the valid range trap. Arrays can be passed to and returned from functions, and assignments create aliases rather than copies. The VM enforces element types, bounds, and the configurable item-count limit.
 
 ## 8. Bytecode compatibility
+
+Generic functions are specialized into ordinary concrete function declarations before IR generation. They introduce no new bytecode opcodes or format version; generated code uses the existing verified bytecode v6 contract.
 
 Bytecode v5 introduced STRUCT_NEW, FIELD_GET, FIELD_SET, and unit ENUM_NEW. Bytecode v6 adds ENUM_NEW_PAYLOAD, ENUM_IS, and ENUM_GET for algebraic enum construction and match expressions. The serializer and verifier accept bytecode versions 1–6; versions 1–5 remain readable and executable. Version 6 is required only for enum payload and matching instructions. The compiler lowers matches to explicit IR control-flow blocks and verifies the result before execution.
 

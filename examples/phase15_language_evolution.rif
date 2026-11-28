@@ -1,0 +1,25 @@
+enum AccountStatus { Active, Suspended, Closed }
+
+struct Customer {
+    name: string,
+    age: int,
+    status: AccountStatus,
+    balance: float
+}
+
+fn add_bonus(customer: Customer, bonus: float) -> Customer {
+    customer.balance = customer.balance + bonus;
+    return customer;
+}
+
+let customer = Customer("Mona", 29, AccountStatus.Active, 125.5);
+let updated = add_bonus(customer, 24.5);
+
+print(updated.name);
+print(updated.age);
+print(updated.status == AccountStatus.Active);
+print(updated.balance);
+print(abs(-12));
+print(sqrt(81));
+print(contains("Rifa'i language", "language"));
+print(substring("Compiler", 0, 4));

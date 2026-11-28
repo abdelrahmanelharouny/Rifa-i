@@ -40,8 +40,8 @@ fn first<T: ArrayElement>(values: T[]) -> T {
     return values[0];
 }
 
-fn first_row<T: ArrayElement>(values: T[][]) -> T[] {
-    return values[0];
+fn second_row<T: ArrayElement>(values: T[][]) -> T[] {
+    return values[1];
 }
 
 fn describe<T: Display>(option: Option<T>) -> string {
@@ -64,7 +64,7 @@ let explicit_box: Box<string> = Box<string>("rifai");
 let boxes: Box<int>[] = [Box<int>(1), Box(2)];
 let points: Point[] = [Point(3), Point(5)];
 let matrix: int[][] = [[1, 2], [3, 4]];
-let matrix_copy: int[][] = first_row(matrix);
+let matrix_copy: int[] = second_row(matrix);
 let nested_empty: int[][] = [[], []];
 let some: Option<int> = Option<int>.Some(9);
 let none: Option<string> = Option<string>.None;
@@ -73,7 +73,7 @@ print(to_string(inferred_box.value));
 print(explicit_box.value);
 print(to_string(first(boxes).value));
 print(to_string(first(points).x));
-print(to_string(matrix_copy[1][0]));
+print(to_string(matrix_copy[0]));
 print(to_string(len(nested_empty[0])));
 print(describe(some));
 print(describe(none));

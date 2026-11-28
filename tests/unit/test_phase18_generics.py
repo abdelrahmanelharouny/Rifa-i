@@ -100,7 +100,11 @@ print(to_string(recurse(11)));
     result = _compile(source)
     assert VirtualMachine().execute(result.module).output == ("31", "11")
     names = [function.name for function in result.module.functions]
-    assert sum(name.startswith("__rifai_generic_identity_") for name in names) == 1
+    assert sum(
+        name.startswith("__rifai_generic_identity_")
+        and not name.startswith("__rifai_generic_identity_inner_")
+        for name in names
+    ) == 1
     assert sum(name.startswith("__rifai_generic_identity_inner_") for name in names) == 1
 
 

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
@@ -216,12 +215,12 @@ def test_file_io_rejects_symlink_escape(tmp_path: Path):
 
 def test_imports_resolve_nested_modules_once_and_preserve_source_maps(tmp_path: Path):
     (tmp_path / "models.rif").write_text(
-        'struct User { name: string, age: int }\\n'
-        'fn greeting(name: string) -> string { return "Hello " + name; }\\n',
+        'struct User { name: string, age: int }\n'
+        'fn greeting(name: string) -> string { return "Hello " + name; }\n',
         encoding="utf-8",
     )
     main = tmp_path / "main.rif"
-    source = 'import "models.rif";\\nlet user = User("Ada", 36);\\nprint(greeting(user.name));\\n'
+    source = 'import "models.rif";\nlet user = User("Ada", 36);\nprint(greeting(user.name));\n'
     main.write_text(source, encoding="utf-8")
 
     result = _compile(source, source_name=str(main))
@@ -297,8 +296,6 @@ print(point.x + point.y);
 
 
 def test_compiler_rejects_nominal_opcodes_in_legacy_bytecode_versions():
-    from dataclasses import replace
-
     from rifai.bytecode import CodeChunk, Instruction, Opcode
 
     module = BytecodeModule(

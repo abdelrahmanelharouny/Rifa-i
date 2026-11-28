@@ -560,19 +560,170 @@ class GenericSpecializer:
             return stmt
         return stmt
 
-    def _rewrite_expression(self, expr: Expression, env: dict[str, str],
-                            substitutions: dict[str, str]) -> Expression:
+    def _unify_type_pattern(
+        self,
+        pattern: str,
+        actual: str,
+        typevars: set[str],
+        substitutions: dict[str, str],
+        span: SourceSpan,
+        owner: str,
+    ) -> bool:
+        """Unify one generic type expression with its inferred concrete type."""
+        pbase, pargs, prank = self._parse_type_shape(pattern)
+        abase, aargs, arank = self._parse_type_shape(actual)
+
+        if pbase in typevars and not pargs:
+            if arank < prank:
+                self._error(span,
+                            f"Generic parameter '{pattern}' in '{owner}' requires a compatible array type, got '{actual}'.")
+                return False
+            inferred = actual[:len(actual) - 2 * prank] if prank else actual
+            previous = substitutions.get(pbase)
+            if previous is not None and previous != inferred:
+                self._error(span,
+                            f"Conflicting inferences for '{pbase}' in '{owner}': '{previous}' and '{inferred}'.")
+                return False
+            substitutions[pbase] = inferred
+            return True
+
+        if prank != arank:
+            return True  # The ordinary semantic checker reports non-generic type mismatches.
+
+        if pbase in self._generic_structs or pbase in self._generic_enums:
+            descriptor = self._type_descriptors.get(abase)
+            if descriptor is None:
+                return True
+            actual_owner, actual_arguments, _kind = descriptor
+            if actual_owner != pbase or len(pargs) != len(actual_arguments):
+                return True
+            for left, right in zip(pargs, actual_arguments):
+                self._unify_type_pattern(left, right, typevars, substitutions, span, owner)
+            return True
+
+        if pargs:
+            if abase == pbase and len(pargs) == len(aargs):
+                for left, right in zip(pargs, aargs):
+                    self._unify_type_pattern(left, right, typevars, substitutions, span, owner)
+                return True
+            return True
+
+        expected = self._specialize_type_name(pattern, span, substitutions)
+        return expected == actual
+
+    def _infer_generic_type_arguments(
+        self,
+        owner: str,
+        tokens: tuple[Token, ...],
+        bounds: tuple[tuple[str, ...], ...],
+        type_patterns: tuple[str, ...],
+        arguments: tuple[Expression, ...],
+        env: dict[str, str],
+        explicit: tuple[TypeAnnotation, ...],
+        span: SourceSpan,
+    ) -> tuple[str, ...] | None:
+        if explicit and len(explicit) != len(tokens):
+            self._error(
+                span,
+                f"Generic declaration '{owner}' expects {len(tokens)} explicit type argument(s), got {len(explicit)}.",
+            )
+            return None
+        substitutions: dict[str, str] = {}
+        if explicit:
+            for token, annotation in zip(tokens, explicit):
+                substitutions[token.lexeme] = self._specialize_type_name(
+                    annotation.name, annotation.span, {}
+                )
+
+        typevars = {item.lexeme for item in tokens}
+        for index, (pattern, argument) in enumerate(zip(type_patterns, arguments)):
+            actual = self._infer_expression_type(argument, env)
+            if actual is None:
+                if any(re.search(rf"(?<![A-Za-z0-9_]){re.escape(item)}(?![A-Za-z0-9_])", pattern)
+                       for item in typevars - substitutions.keys()):
+                    variable = next(
+                        item for item in tokens
+                        if item.lexeme not in substitutions
+                        and re.search(rf"(?<![A-Za-z0-9_]){re.escape(item.lexeme)}(?![A-Za-z0-9_])", pattern)
+                    )
+                    self._error(
+                        argument.span,
+                        f"Cannot infer generic type parameter '{variable.lexeme}' for '{owner}' "
+                        f"from argument {index + 1}; use a value with a concrete type or provide explicit type arguments.",
+                    )
+                continue
+            self._unify_type_pattern(pattern, actual, typevars, substitutions, argument.span, owner)
+
+        missing = typevars - substitutions.keys()
+        if missing:
+            token = next(item for item in tokens if item.lexeme == sorted(missing)[0])
+            self._error(
+                span,
+                f"Cannot infer generic type parameter '{token.lexeme}' for '{owner}'. "
+                "Provide explicit type arguments when inference is ambiguous.",
+            )
+            return None
+        concrete = tuple(substitutions[item.lexeme] for item in tokens)
+        if not self._check_type_arguments(owner, tokens, bounds, concrete, span):
+            return None
+        return concrete
+
+    def _rewrite_expression(
+        self,
+        expr: Expression,
+        env: dict[str, str],
+        substitutions: dict[str, str],
+    ) -> Expression:
         if isinstance(expr, FunctionCallExpression):
             args = tuple(self._rewrite_expression(a, env, substitutions) for a in expr.arguments)
             rewritten = replace(expr, arguments=args) if args != expr.arguments else expr
+
+            struct_template = self._generic_structs.get(expr.callee)
+            if struct_template is not None:
+                patterns = tuple(item.type_annotation.name for item in struct_template.fields)
+                concrete = self._infer_generic_type_arguments(
+                    struct_template.name,
+                    struct_template.type_parameters,
+                    struct_template.type_parameter_bounds,
+                    patterns,
+                    args,
+                    env,
+                    expr.type_arguments,
+                    expr.span,
+                )
+                if concrete is None:
+                    return rewritten
+                generated = self._instantiate_generic_nominal(expr.callee, concrete, expr.span)
+                if generated is None:
+                    return rewritten
+                return replace(
+                    rewritten,
+                    callee=generated,
+                    callee_token=replace(expr.callee_token, lexeme=generated),
+                    type_arguments=(),
+                )
             template = self._generic_functions.get(expr.callee)
-            if template is None:
-                return rewritten
-            name = self._specialize_call(template, args, env)
-            if name is None:
-                return rewritten
-            return replace(rewritten, callee=name,
-                           callee_token=replace(expr.callee_token, lexeme=name))
+            if template is not None:
+                name = self._specialize_call(template, args, env, expr.type_arguments, expr.span)
+                if name is None:
+                    return rewritten
+                return replace(
+                    rewritten,
+                    callee=name,
+                    callee_token=replace(expr.callee_token, lexeme=name),
+                    type_arguments=(),
+                )
+            if expr.type_arguments:
+                self._error(expr.span,
+                            f"Function or type '{expr.callee}' does not accept explicit type arguments.")
+            return rewritten
+
+        if isinstance(expr, TypeApplicationExpression):
+            type_text = expr.name + "<" + ",".join(item.name for item in expr.type_arguments) + ">"
+            specialized = self._specialize_type_name(type_text, expr.span, substitutions)
+            token = replace(expr.name_token, lexeme=specialized)
+            return VariableExpression(name=specialized, token=token, span=expr.span)
+
         if isinstance(expr, UnaryExpression):
             value = self._rewrite_expression(expr.operand, env, substitutions)
             return replace(expr, operand=value) if value is not expr.operand else expr
@@ -592,76 +743,119 @@ class GenericSpecializer:
             return replace(expr, array=array, index=index) if (array, index) != (expr.array, expr.index) else expr
         if isinstance(expr, MemberExpression):
             obj = self._rewrite_expression(expr.object, env, substitutions)
+            if isinstance(obj, VariableExpression) and obj.name in self._generic_enums:
+                self._error(expr.span,
+                            f"Generic enum variant '{obj.name}.{expr.name}' requires explicit type arguments, e.g. {obj.name}<int>.{expr.name}.")
             return replace(expr, object=obj) if obj is not expr.object else expr
         if isinstance(expr, EnumConstructorExpression):
             args = tuple(self._rewrite_expression(a, env, substitutions) for a in expr.arguments)
+            template = self._generic_enums.get(expr.enum_name)
+            if template is not None:
+                variant = next((item for item in template.variants if item.name == expr.variant_name), None)
+                if variant is None:
+                    return replace(expr, arguments=args) if args != expr.arguments else expr
+                patterns = tuple(item.name for item in variant.payload_types)
+                concrete = self._infer_generic_type_arguments(
+                    template.name,
+                    template.type_parameters,
+                    template.type_parameter_bounds,
+                    patterns,
+                    args,
+                    env,
+                    expr.type_arguments,
+                    expr.span,
+                )
+                if concrete is None:
+                    return replace(expr, arguments=args) if args != expr.arguments else expr
+                generated = self._instantiate_generic_nominal(expr.enum_name, concrete, expr.span)
+                if generated is None:
+                    return replace(expr, arguments=args) if args != expr.arguments else expr
+                return replace(
+                    expr,
+                    enum_name=generated,
+                    enum_token=replace(expr.enum_token, lexeme=generated),
+                    arguments=args,
+                    type_arguments=(),
+                )
+            if expr.type_arguments:
+                self._error(expr.span,
+                            f"Enum '{expr.enum_name}' is not generic and cannot accept type arguments.")
             return replace(expr, arguments=args) if args != expr.arguments else expr
+
         if isinstance(expr, MatchExpression):
             subject = self._rewrite_expression(expr.subject, env, substitutions)
             subject_type = self._infer_expression_type(subject, env)
+            subject_descriptor = self._type_descriptors.get(subject_type) if subject_type else None
+            enum_owner = subject_type
+            enum_args: tuple[str, ...] = ()
+            if subject_descriptor is not None and subject_descriptor[2] == "enum":
+                enum_owner, enum_args, _ = subject_descriptor
             enum_decl = self._enums.get(subject_type) if subject_type else None
             arms = []
             for arm in expr.arms:
                 local = dict(env)
-                if enum_decl is not None and not arm.wildcard:
-                    variant = next((v for v in enum_decl.variants if v.name == arm.variant_name), None)
+                rewritten_arm = arm
+                if not arm.wildcard:
+                    pattern_enum = arm.enum_name or ""
+                    if pattern_enum in self._generic_enums:
+                        if arm.type_arguments:
+                            concrete = tuple(
+                                self._specialize_type_name(item.name, item.span, substitutions)
+                                for item in arm.type_arguments
+                            )
+                        elif subject_descriptor is not None and subject_descriptor[0] == pattern_enum:
+                            concrete = enum_args
+                        else:
+                            self._error(
+                                arm.span,
+                                f"Pattern for generic enum '{pattern_enum}' must specify type arguments "
+                                "or match the concrete enum type of its subject.",
+                            )
+                            concrete = ()
+                        if concrete:
+                            generated = self._instantiate_generic_nominal(pattern_enum, concrete, arm.span)
+                            if generated is not None:
+                                rewritten_arm = replace(arm, enum_name=generated, type_arguments=())
+                    elif arm.type_arguments:
+                        self._error(arm.span, f"Enum '{pattern_enum}' is not generic and cannot accept type arguments.")
+                selected_enum = self._enums.get(rewritten_arm.enum_name or "")
+                if selected_enum is not None and not rewritten_arm.wildcard:
+                    variant = next((v for v in selected_enum.variants if v.name == rewritten_arm.variant_name), None)
                     if variant is not None:
-                        for token, annotation in zip(arm.bindings, variant.payload_types):
-                            local[token.lexeme] = self._substitute_type_name(annotation.name, substitutions)
+                        for token, annotation in zip(rewritten_arm.bindings, variant.payload_types):
+                            local[token.lexeme] = annotation.name
                 body = self._rewrite_expression(arm.body, local, substitutions)
-                arms.append(replace(arm, body=body) if body is not arm.body else arm)
+                arms.append(replace(rewritten_arm, body=body) if body is not rewritten_arm.body else rewritten_arm)
             arms = tuple(arms)
             return replace(expr, subject=subject, arms=arms) if (subject, arms) != (expr.subject, expr.arms) else expr
         return expr
 
-    def _specialize_call(self, template: FunctionDeclaration, args: tuple[Expression, ...],
-                         env: dict[str, str]) -> str | None:
+    def _specialize_call(
+        self,
+        template: FunctionDeclaration,
+        args: tuple[Expression, ...],
+        env: dict[str, str],
+        explicit_type_arguments: tuple[TypeAnnotation, ...] = (),
+        call_span: SourceSpan | None = None,
+    ) -> str | None:
+        span = call_span or template.span
         if len(args) != len(template.params):
-            self._error(template.span,
+            self._error(span,
                         f"Generic function '{template.name}' expects {len(template.params)} argument(s), got {len(args)}.")
             return None
-        typevars = {token.lexeme for token in template.type_parameters}
-        substitutions: dict[str, str] = {}
-        for index, (parameter, argument) in enumerate(zip(template.params, args)):
-            pattern = parameter.type_annotation.name
-            variable = pattern[:-2] if pattern.endswith("[]") and pattern[:-2] in typevars else pattern
-            if variable not in typevars:
-                continue
-            actual = self._infer_expression_type(argument, env)
-            if actual is None:
-                self._error(argument.span,
-                            f"Cannot infer generic type parameter '{variable}' for '{template.name}' from argument {index + 1}; pass a value with a concrete type.")
-                return None
-            inferred = actual
-            if pattern.endswith("[]"):
-                if not actual.endswith("[]"):
-                    self._error(argument.span,
-                                f"Generic parameter '{variable}[]' in '{template.name}' requires an array argument, got '{actual}'.")
-                    return None
-                inferred = actual[:-2]
-                if inferred.endswith("[]"):
-                    self._error(argument.span, "Nested arrays are not supported by Rifa'i generic specialization.")
-                    return None
-            previous = substitutions.get(variable)
-            if previous is not None and previous != inferred:
-                self._error(argument.span,
-                            f"Conflicting inferences for '{variable}' in '{template.name}': '{previous}' and '{inferred}'.")
-                return None
-            substitutions[variable] = inferred
-
-        missing = typevars - substitutions.keys()
-        if missing:
-            missing_name = sorted(missing)[0]
-            self._error(SourceSpan.from_token(template.name_token),
-                        f"Cannot infer generic type parameter '{missing_name}' for '{template.name}' from its parameters.")
+        patterns = tuple(item.type_annotation.name for item in template.params)
+        concrete = self._infer_generic_type_arguments(
+            template.name,
+            template.type_parameters,
+            template.type_parameter_bounds,
+            patterns,
+            args,
+            env,
+            explicit_type_arguments,
+            span,
+        )
+        if concrete is None:
             return None
-        concrete = tuple(substitutions[token.lexeme] for token in template.type_parameters)
-        for name in concrete:
-            if name == "void" or (type_from_name(name) is None and name not in self._nominal_names):
-                self._error(SourceSpan.from_token(template.name_token),
-                            f"Generic function '{template.name}' cannot be specialized with unknown or invalid type '{name}'.")
-                return None
-
         key = (template.name, concrete)
         cached = self._specializations.get(key)
         if cached is not None:
@@ -669,27 +863,35 @@ class GenericSpecializer:
         digest = sha256("\0".join(concrete).encode("utf-8")).hexdigest()[:10]
         name = f"{_INTERNAL_PREFIX}{template.name}_{digest}"
         if name in self._reserved_names:
-            self._error(SourceSpan.from_token(template.name_token),
+            self._error(span,
                         f"Generated specialization name '{name}' conflicts with a user declaration.")
             return None
 
-        params = tuple(replace(p, type_annotation=self._substitute_annotation(p.type_annotation, substitutions))
-                       for p in template.params)
-        return_type = self._substitute_annotation(template.return_type, substitutions)
+        substitutions = {
+            token.lexeme: value
+            for token, value in zip(template.type_parameters, concrete)
+        }
+        params = tuple(
+            replace(parameter, type_annotation=self._specialize_annotation(parameter.type_annotation, substitutions))
+            for parameter in template.params
+        )
+        return_type = self._specialize_annotation(template.return_type, substitutions)
         placeholder = replace(
-            template, name=name, name_token=replace(template.name_token, lexeme=name),
-            params=params, return_type=return_type,
-            body=replace(template.body, statements=()), type_parameters=(),
+            template,
+            name=name,
+            name_token=replace(template.name_token, lexeme=name),
+            params=params,
+            return_type=return_type,
+            body=replace(template.body, statements=()),
+            type_parameters=(),
+            type_parameter_bounds=(),
         )
         self._specializations[key] = placeholder
         self._specialization_positions[key] = len(self._specialization_list)
         self._specialization_list.append(placeholder)
         self._specialized_returns[name] = return_type.name
 
-        local_env = {p.name: p.type_annotation.name for p in params}
-        # Each concrete instantiation must own distinct AST node identities.
-        # SemanticResult stores bindings by id(node), so shared source nodes
-        # between specializations would allow one instance to overwrite another.
+        local_env = {parameter.name: parameter.type_annotation.name for parameter in params}
         body = self._rewrite_block(deepcopy(template.body), local_env, substitutions)
         specialized = replace(placeholder, body=body)
         self._specializations[key] = specialized

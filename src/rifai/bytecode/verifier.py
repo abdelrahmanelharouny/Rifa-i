@@ -28,7 +28,7 @@ from rifai.bytecode.module import (
     is_constant,
 )
 from rifai.errors.diagnostics import Diagnostic, DiagnosticPhase
-from rifai.stdlib import BUILTIN_ARITIES
+from rifai.stdlib import BUILTIN_ARITIES, BUILTIN_FUNCTIONS
 
 _ALLOWED_VALUE_TYPES = frozenset({"int", "float", "bool", "string", "int[]", "float[]", "bool[]", "string[]"})
 _ALLOWED_RETURN_TYPES = _ALLOWED_VALUE_TYPES | {"void"}
@@ -41,7 +41,12 @@ MAX_DEBUG_SOURCE_CHARS = 8 * 1024 * 1024
 
 
 def _is_nominal_type_name(value: str) -> bool:
-    return bool(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value))
+    return (
+        bool(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value))
+        and value != "void"
+        and value not in BUILTIN_FUNCTIONS
+        and value not in _ALLOWED_VALUE_TYPES
+    )
 
 
 def _valid_type_name(value: str, allow_nominal: bool) -> bool:
@@ -448,6 +453,12 @@ class BytecodeVerifier:
                         report("ENUM_NEW requires a valid Type.Variant operand.", instruction)
                         continue
                 elif opcode is Opcode.CALL:
+                    if operand in BUILTIN_ARITIES and not supports_nominal_types:
+                        report(
+                            f"Standard-library CALL '{operand}' requires bytecode version {NOMINAL_TYPES_FORMAT_VERSION}.",
+                            instruction,
+                        )
+                        continue
                     if not supports_functions or (
                         operand not in function_by_name and operand not in BUILTIN_ARITIES
                     ):

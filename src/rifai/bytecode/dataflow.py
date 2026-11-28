@@ -29,7 +29,7 @@ _BINARY = frozenset({
 })
 _ARRAY_NEW = frozenset({
     Opcode.ARRAY_NEW_INT, Opcode.ARRAY_NEW_FLOAT,
-    Opcode.ARRAY_NEW_BOOL, Opcode.ARRAY_NEW_STRING,
+    Opcode.ARRAY_NEW_BOOL, Opcode.ARRAY_NEW_STRING, Opcode.ARRAY_NEW_TYPED,
 })
 _CSE_PURE = _UNARY | _BINARY | frozenset({Opcode.CONSTANT, Opcode.LOAD_LOCAL})
 
@@ -145,7 +145,11 @@ def _stack_heights(
                 if target is None or target.returns_value:
                     height += 1
             elif opcode in _ARRAY_NEW:
-                height += 1 - instruction.operand
+                count = (
+                    int(instruction.operand.rsplit("|", 1)[1])
+                    if opcode is Opcode.ARRAY_NEW_TYPED else instruction.operand
+                )
+                height += 1 - count
             elif opcode is Opcode.ENUM_NEW_PAYLOAD:
                 payload_text = instruction.operand.split("|", 2)[2]
                 height += 1 - (len(payload_text.split(",")) if payload_text else 0)
@@ -228,7 +232,11 @@ def _execute_abstract_instruction(
         if target is None or target.returns_value:
             stack.append(_UNKNOWN)
     elif opcode in _ARRAY_NEW:
-        _pop(stack, instruction.operand)
+        count = (
+            int(instruction.operand.rsplit("|", 1)[1])
+            if opcode is Opcode.ARRAY_NEW_TYPED else instruction.operand
+        )
+        _pop(stack, count)
         stack.append(_UNKNOWN)
     elif opcode is Opcode.ARRAY_GET:
         _pop(stack, 2)
@@ -656,7 +664,11 @@ def _cse_chunk(
                 continue
             if opcode in _ARRAY_NEW:
                 cache.clear()
-                _pop(stack, instruction.operand)
+                count = (
+                    int(instruction.operand.rsplit("|", 1)[1])
+                    if opcode is Opcode.ARRAY_NEW_TYPED else instruction.operand
+                )
+                _pop(stack, count)
                 stack.append(_UNKNOWN)
             elif opcode is Opcode.ENUM_NEW_PAYLOAD:
                 cache.clear()

@@ -507,7 +507,7 @@ class ASTToIR:
         elif isinstance(statement, IndexAssignmentStatement):
             array = self._compile_value(statement.array)
             index = self._compile_value(statement.index)
-            value = self._compile_expression(statement.value)
+            value = self._compile_value(statement.value)
             self._emit(
                 Opcode.ARRAY_SET,
                 (array, index, value),
@@ -605,7 +605,7 @@ class ASTToIR:
         )
 
         self._set_current(condition_id)
-        condition = self._compile_expression(statement.condition)
+        condition = self._compile_value(statement.condition)
         self._terminate(
             IRBranch(
                 condition=condition,
@@ -644,7 +644,7 @@ class ASTToIR:
         elif isinstance(expression, VariableExpression):
             result = self._load(self._variable_symbol(expression), expression.span)
         elif isinstance(expression, GroupingExpression):
-            return self._compile_value(expression.expression)
+            return self._compile_expression(expression.expression)
         elif isinstance(expression, ArrayLiteralExpression):
             values = tuple(
                 self._compile_value(item)

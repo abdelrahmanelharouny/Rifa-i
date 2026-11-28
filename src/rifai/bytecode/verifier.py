@@ -73,7 +73,7 @@ def _valid_versioned_type_name(value: str, supports_nominal: bool, supports_gene
     return supports_nominal and _is_nominal_type_name(value)
 
 
-def _valid_struct_schema(value: str) -> bool:
+def _valid_struct_schema(value: str, *, allow_generic_types: bool = False) -> bool:
     if len(value) > 4096 or "|" not in value:
         return False
     type_name, fields = value.split("|", 1)
@@ -86,7 +86,7 @@ def _valid_struct_schema(value: str) -> bool:
         name, field_type = field.split(":", 1)
         if not _is_identifier(name) or name in seen:
             return False
-        if not _valid_type_name(field_type, allow_nominal=True):
+        if not _valid_versioned_type_name(field_type, supports_nominal=True, supports_generic=allow_generic_types):
             return False
         seen.add(name)
     return bool(seen)
@@ -107,7 +107,7 @@ def _valid_enum_variant(value: str) -> bool:
     )
 
 
-def _valid_enum_payload_schema(value: str) -> bool:
+def _valid_enum_payload_schema(value: str, *, allow_generic_types: bool = False) -> bool:
     if len(value) > 4096 or value.count("|") != 2:
         return False
     enum_name, variant, payload_text = value.split("|", 2)
@@ -115,7 +115,7 @@ def _valid_enum_payload_schema(value: str) -> bool:
         return False
     payload_types = payload_text.split(",") if payload_text else []
     return len(payload_types) <= 256 and all(
-        _valid_type_name(item, allow_nominal=True)
+        _valid_versioned_type_name(item, supports_nominal=True, supports_generic=allow_generic_types)
         for item in payload_types
     )
 
@@ -129,7 +129,7 @@ def _valid_enum_test(value: str) -> bool:
     )
 
 
-def _valid_enum_payload_access(value: str) -> bool:
+def _valid_enum_payload_access(value: str, *, allow_generic_types: bool = False) -> bool:
     if len(value) > 1024 or value.count("|") != 3:
         return False
     enum_name, variant, index_text, expected = value.split("|", 3)
@@ -138,7 +138,7 @@ def _valid_enum_payload_access(value: str) -> bool:
         and _is_identifier(variant)
         and index_text.isdigit()
         and int(index_text) <= 255
-        and _valid_type_name(expected, allow_nominal=True)
+        and _valid_versioned_type_name(expected, supports_nominal=True, supports_generic=allow_generic_types)
     )
 
 
@@ -536,7 +536,7 @@ class BytecodeVerifier:
                     if not isinstance(operand, str) or not operand:
                         report(f"{opcode.value} requires a non-empty string operand.", instruction)
                         continue
-                    if opcode is Opcode.STRUCT_NEW and not _valid_struct_schema(operand):
+                    if opcode is Opcode.STRUCT_NEW and not _valid_struct_schema(operand, allow_generic_types=supports_generic_types):
                         report("STRUCT_NEW has an invalid or oversized field schema.", instruction)
                         continue
                     if opcode in (Opcode.FIELD_GET, Opcode.FIELD_SET) and not _is_identifier(operand):
@@ -553,9 +553,9 @@ class BytecodeVerifier:
                         report(f"{opcode.value} requires a non-empty string operand.", instruction)
                         continue
                     valid = (
-                        _valid_enum_payload_schema(operand) if opcode is Opcode.ENUM_NEW_PAYLOAD
+                        _valid_enum_payload_schema(operand, allow_generic_types=supports_generic_types) if opcode is Opcode.ENUM_NEW_PAYLOAD
                         else _valid_enum_test(operand) if opcode is Opcode.ENUM_IS
-                        else _valid_enum_payload_access(operand)
+                        else _valid_enum_payload_access(operand, allow_generic_types=supports_generic_types)
                     )
                     if not valid:
                         report(f"{opcode.value} has an invalid enum payload or pattern operand.", instruction)

@@ -459,31 +459,33 @@ class GenericSpecializer:
         if function.name in BUILTIN_FUNCTIONS or function.name in self._nominal_names:
             self._error(SourceSpan.from_token(function.name_token),
                         f"Generic function name '{function.name}' conflicts with a reserved name.")
-        names: set[str] = set()
-        for token in function.type_parameters:
-            if token.lexeme in names:
-                self._error(SourceSpan.from_token(token),
-                            f"Duplicate generic type parameter '{token.lexeme}'.")
-            if type_from_name(token.lexeme) is not None or token.lexeme in self._nominal_names:
-                self._error(SourceSpan.from_token(token),
-                            f"Generic type parameter '{token.lexeme}' shadows a declared type.")
-            names.add(token.lexeme)
-        inferable: set[str] = set()
-        for parameter in function.params:
-            pattern = parameter.type_annotation.name
-            if pattern in names:
-                inferable.add(pattern)
-            elif pattern.endswith("[]") and pattern[:-2] in names:
-                inferable.add(pattern[:-2])
+        self._validate_type_parameters(
+            function.name, function.type_parameters, function.type_parameter_bounds
+        )
+        names = {item.lexeme for item in function.type_parameters}
+        inferable = {
+            token.lexeme
+            for token in function.type_parameters
+            if any(re.search(rf"(?<![A-Za-z0-9_]){re.escape(token.lexeme)}(?![A-Za-z0-9_])",
+                             parameter.type_annotation.name)
+                   for parameter in function.params)
+        }
         for missing in names - inferable:
             token = next(item for item in function.type_parameters if item.lexeme == missing)
-            self._error(SourceSpan.from_token(token),
-                        f"Generic type parameter '{missing}' must appear in a parameter type so it can be inferred.")
+            self._error(
+                SourceSpan.from_token(token),
+                f"Generic type parameter '{missing}' must appear in a parameter type so it can be inferred."
+            )
 
     def _rewrite_function(self, function: FunctionDeclaration) -> FunctionDeclaration:
-        env = {p.name: p.type_annotation.name for p in function.params}
+        params = tuple(
+            replace(parameter, type_annotation=self._specialize_annotation(parameter.type_annotation, {}))
+            for parameter in function.params
+        )
+        return_type = self._specialize_annotation(function.return_type, {})
+        env = {p.name: p.type_annotation.name for p in params}
         body = self._rewrite_block(function.body, env, {})
-        return replace(function, body=body) if body is not function.body else function
+        return replace(function, params=params, return_type=return_type, body=body)
 
     def _rewrite_block(self, block: BlockStatement, env: dict[str, str],
                        substitutions: dict[str, str]) -> BlockStatement:
@@ -495,7 +497,7 @@ class GenericSpecializer:
                            substitutions: dict[str, str]) -> Statement:
         if isinstance(stmt, VariableDeclaration):
             init = self._rewrite_expression(stmt.initializer, env, substitutions)
-            annotation = self._substitute_annotation(stmt.type_annotation, substitutions)
+            annotation = self._specialize_annotation(stmt.type_annotation, substitutions)
             inferred = annotation.name if annotation else self._infer_expression_type(init, env)
             if inferred is not None:
                 env[stmt.name] = inferred

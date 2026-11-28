@@ -79,6 +79,8 @@ class IRSideEffectAnalysis:
         Opcode.FIELD_GET,
         Opcode.FIELD_SET,
         Opcode.ENUM_NEW,
+        Opcode.ENUM_NEW_PAYLOAD,
+        Opcode.ENUM_GET,
         Opcode.CALL,
         Opcode.ADD,
         Opcode.SUBTRACT,
@@ -100,6 +102,7 @@ class IRSideEffectAnalysis:
         Opcode.GREATER_EQUAL,
         Opcode.AND,
         Opcode.OR,
+        Opcode.ENUM_IS,
     })
     # Reuse is safe for deterministic operations over immutable SSA values.
     # Arithmetic may trap, but a dominating first evaluation would already
@@ -156,6 +159,8 @@ class IRSideEffectAnalysis:
             return False
         if operation.opcode is Opcode.NOT:
             return input_types == ("bool",)
+        if operation.opcode is Opcode.ENUM_IS:
+            return len(input_types) == 1 and input_types[0] == operation.operand.split("|", 1)[0]
         if operation.opcode in (Opcode.AND, Opcode.OR):
             return input_types == ("bool", "bool")
         if operation.opcode in (Opcode.EQUAL, Opcode.NOT_EQUAL):

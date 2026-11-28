@@ -146,6 +146,9 @@ def _stack_heights(
                     height += 1
             elif opcode in _ARRAY_NEW:
                 height += 1 - instruction.operand
+            elif opcode is Opcode.ENUM_NEW_PAYLOAD:
+                payload_text = instruction.operand.split("|", 2)[2]
+                height += 1 - (len(payload_text.split(",")) if payload_text else 0)
             elif opcode is Opcode.RETURN:
                 if return_type is not None and return_type != "void":
                     height -= 1
@@ -241,6 +244,14 @@ def _execute_abstract_instruction(
         _pop(stack)
         stack.append(_UNKNOWN)
     elif opcode in (Opcode.STRUCT_NEW, Opcode.ENUM_NEW):
+        stack.append(_UNKNOWN)
+    elif opcode is Opcode.ENUM_NEW_PAYLOAD:
+        payload_text = instruction.operand.split("|", 2)[2]
+        count = len(payload_text.split(",")) if payload_text else 0
+        _pop(stack, count)
+        stack.append(_UNKNOWN)
+    elif opcode in (Opcode.ENUM_IS, Opcode.ENUM_GET):
+        _pop(stack)
         stack.append(_UNKNOWN)
     elif opcode is Opcode.FIELD_GET:
         _pop(stack)
@@ -646,6 +657,15 @@ def _cse_chunk(
             if opcode in _ARRAY_NEW:
                 cache.clear()
                 _pop(stack, instruction.operand)
+                stack.append(_UNKNOWN)
+            elif opcode is Opcode.ENUM_NEW_PAYLOAD:
+                cache.clear()
+                payload_text = instruction.operand.split("|", 2)[2]
+                count = len(payload_text.split(",")) if payload_text else 0
+                _pop(stack, count)
+                stack.append(_UNKNOWN)
+            elif opcode in (Opcode.ENUM_IS, Opcode.ENUM_GET):
+                _pop(stack)
                 stack.append(_UNKNOWN)
             elif opcode is Opcode.ARRAY_GET:
                 cache.clear()

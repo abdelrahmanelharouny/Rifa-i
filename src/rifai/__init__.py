@@ -27,6 +27,7 @@ from rifai.bytecode import (
 )
 from rifai.compiler import CompilationResult, Compiler
 from rifai.ir import (
+    ASTToIR,
     BytecodeToIR,
     IRAnalysis,
     IRAnalyzer,
@@ -82,6 +83,7 @@ __all__ = [
     "optimize_module_dataflow",
     "analyze_module_control_flow",
     "build_control_flow_graph",
+    "ASTToIR",
     "BytecodeToIR",
     "IRAnalysis",
     "IRAnalyzer",

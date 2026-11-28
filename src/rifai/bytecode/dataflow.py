@@ -240,6 +240,13 @@ def _execute_abstract_instruction(
     elif opcode is Opcode.ARRAY_POP:
         _pop(stack)
         stack.append(_UNKNOWN)
+    elif opcode in (Opcode.STRUCT_NEW, Opcode.ENUM_NEW):
+        stack.append(_UNKNOWN)
+    elif opcode is Opcode.FIELD_GET:
+        _pop(stack)
+        stack.append(_UNKNOWN)
+    elif opcode is Opcode.FIELD_SET:
+        _pop(stack, 2)
     elif opcode is Opcode.RETURN:
         if return_type is not None and return_type != "void":
             _pop(stack)
@@ -658,6 +665,16 @@ def _cse_chunk(
                 cache.clear()
                 _pop(stack)
                 stack.append(_UNKNOWN)
+            elif opcode in (Opcode.STRUCT_NEW, Opcode.ENUM_NEW):
+                cache.clear()
+                stack.append(_UNKNOWN)
+            elif opcode is Opcode.FIELD_GET:
+                cache.clear()
+                _pop(stack)
+                stack.append(_UNKNOWN)
+            elif opcode is Opcode.FIELD_SET:
+                cache.clear()
+                _pop(stack, 2)
             elif opcode is Opcode.RETURN and return_type not in (None, "void"):
                 _pop(stack)
             output.append(instruction)

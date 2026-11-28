@@ -35,7 +35,7 @@ The `debug_info` object contains:
 
 Debug metadata is optional for hand-authored bytecode, but compiler-produced source programs embed it by default. Embedded source text is limited to 8 Mi characters and the complete bytecode file is limited to 16 MiB. The verifier rejects unknown chunks, duplicate chunk entries, duplicate slots, invalid names/types, and slots outside their owning chunk. Metadata is informational and does not affect VM execution semantics.
 
-The serializer writes version 4 by default and retains v1/v2/v3 read/write compatibility. Version 4 contains version 3's debug metadata and adds typed-array instructions. The reader accepts versions 1, 2, 3, and 4. Constants are tagged as int, float, bool, or string; non-finite floats are forbidden. JSON keys must be unique.
+The serializer writes version 5 by default and retains v1-v4 read/write compatibility. Version 4 adds typed-array instructions; version 5 adds nominal structs/enums and intrinsic standard-library CALL targets. The reader and verifier accept versions 1 through 5. Constants are tagged as int, float, bool, or string; non-finite floats are forbidden. JSON keys must be unique.
 
 ## 2. Code Chunks and Frames
 
@@ -47,7 +47,7 @@ A code chunk contains:
 
 For a function chunk, arity must equal the length of its parameter signature and local_count must be at least arity. The first arity slots hold parameters in declaration order. Other locals use the remaining zero-based slots.
 
-Version 1 modules contain only the main chunk. Version 2, 3, and 4 modules contain one main chunk and zero or more function chunks.
+Version 1 modules contain only the main chunk. Version 2–5 modules contain one main chunk and zero or more function chunks.
 
 ## 3. Instruction Encoding
 
@@ -87,10 +87,28 @@ Jump targets are absolute, zero-based instruction indices within the current chu
 
 +1 means a value is added to the stack; -1 means a value is removed; 0 means stack height is unchanged. CALL consumes exactly the callee's arity. It pushes one result for non-void functions and no result for void functions. RETURN is valid only in function chunks; HALT is valid only in the main chunk.
 
+### Version 5 Nominal-Type Instructions
+
+Version 5 adds the following instructions:
+
+| Opcode | Operand | Stack effect | Behavior |
+|---|---|---:|---|
+| STRUCT_NEW | schema string | +1 | Allocate a nominal struct with a checked field schema |
+| FIELD_GET | field identifier | 0 | Pop a struct reference and push its initialized field |
+| FIELD_SET | field identifier | -2 | Pop value and struct reference, validate the field type, and mutate the field |
+| ENUM_NEW | enum schema string | +1 | Construct one declared immutable unit variant |
+
+The STRUCT_NEW operand uses TypeName|field:type,field:type encoding. FIELD_GET and FIELD_SET carry only the field identifier. ENUM_NEW uses EnumName|VariantA,VariantB|SelectedVariant; the verifier checks that the active variant is present in the schema.
+
+Version 5 function parameter/return signatures and debug-local metadata may use nominal type names in addition to primitive and primitive-array types. The new intrinsic CALL targets include math, numeric conversion, string, and file helpers. User-defined function names cannot collide with standard-library names.
+
+STRUCT_NEW, FIELD_GET, FIELD_SET, ENUM_NEW, and the new intrinsic CALL targets are invalid in versions 1–4. Existing v1–v4 bytecode remains readable and executable.
+
 ## 4. Verification Invariants
 
 The verifier validates the main chunk and every function chunk:
 - Supported bytecode version and typed constants.
+- Version-gated nominal instruction contracts and schema encodings.
 - Unique function names and supported function signatures.
 - Function arity and local-slot layout.
 - Opcode/operand contracts and known call targets.

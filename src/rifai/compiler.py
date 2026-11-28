@@ -14,6 +14,7 @@ from rifai.frontend.tokens import Token
 from rifai.frontend.lexer import Lexer
 from rifai.frontend.parser import Parser
 from rifai.frontend.semantic import SemanticAnalyzer
+from rifai.frontend.generics import GenericSpecializer
 from rifai.ir.analysis import IRAnalysis
 from rifai.ir.model import IRModule
 from rifai.ir.pipeline import IRPipeline
@@ -303,13 +304,18 @@ class Compiler:
         if import_diagnostics:
             return CompilationResult(None, import_diagnostics)
 
-        semantic_result = SemanticAnalyzer().analyze(expanded_program)
+        specialization_result = GenericSpecializer().specialize(expanded_program)
+        if not specialization_result.is_valid:
+            return CompilationResult(None, specialization_result.diagnostics)
+        specialized_program = specialization_result.program
+
+        semantic_result = SemanticAnalyzer().analyze(specialized_program)
         if not semantic_result.is_valid:
             return CompilationResult(None, semantic_result.diagnostics)
 
         try:
             ir_result = IRPipeline().run_ast(
-                expanded_program,
+                specialized_program,
                 semantic_result,
                 source_name=source_name,
                 source_text=debug_source,

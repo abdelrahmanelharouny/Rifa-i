@@ -1,11 +1,12 @@
 (* ============================================================================
- * Rifa'i Programming Language — Formal EBNF Grammar (Version 3.2 / Phase 17)
+ * Rifa'i Programming Language — Formal EBNF Grammar (Version 3.3 / Phase 18)
  * ============================================================================
  *
  * Phase 15 adds relative source imports, nominal structs and unit enums,
  * inferred local declarations, and postfix member access.
  * Phase 16 adds for loops, break/continue, and short-circuit logical evaluation.
  * Phase 17 adds typed enum payloads and exhaustive match expressions.
+ * Phase 18 adds generic function type parameters and inferred specialization.
  *
  * Imports are top-level and resolve relative to the importing file, confined
  * to the root source directory. Imported declarations share one global
@@ -36,13 +37,14 @@ enum_decl      ::= "enum" IDENTIFIER "{"
 enum_variant   ::= IDENTIFIER ( "(" type_list? ")" )? ;
 type_list      ::= type_spec ( "," type_spec )* ;
 
-fn_decl        ::= "fn" IDENTIFIER "(" param_list? ")" "->" return_type block ;
+fn_decl        ::= "fn" IDENTIFIER generic_params? "(" param_list? ")" "->" return_type block ;
+generic_params ::= "<" IDENTIFIER ( "," IDENTIFIER )* ">" ;
 
 param_list     ::= param ( "," param )* ;
 param          ::= IDENTIFIER ":" type_spec ;
 
 type_spec      ::= primitive_type ( "[" "]" )?
-                 | IDENTIFIER ;
+                 | IDENTIFIER ( "[" "]" )? ;
 
 primitive_type ::= "int" | "float" | "bool" | "string" ;
 return_type    ::= type_spec | "void" ;

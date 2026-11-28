@@ -1,10 +1,11 @@
 (* ============================================================================
- * Rifa'i Programming Language — Formal EBNF Grammar (Version 3.1 / Phase 16)
+ * Rifa'i Programming Language — Formal EBNF Grammar (Version 3.2 / Phase 17)
  * ============================================================================
  *
  * Phase 15 adds relative source imports, nominal structs and unit enums,
  * inferred local declarations, and postfix member access.
  * Phase 16 adds for loops, break/continue, and short-circuit logical evaluation.
+ * Phase 17 adds typed enum payloads and exhaustive match expressions.
  *
  * Imports are top-level and resolve relative to the importing file, confined
  * to the root source directory. Imported declarations share one global
@@ -29,8 +30,11 @@ struct_decl    ::= "struct" IDENTIFIER "{"
 struct_field   ::= IDENTIFIER ":" type_spec ;
 
 enum_decl      ::= "enum" IDENTIFIER "{"
-                   IDENTIFIER ( "," IDENTIFIER )* ","?
+                   enum_variant ( "," enum_variant )* ","?
                    "}" ;
+
+enum_variant   ::= IDENTIFIER ( "(" type_list? ")" )? ;
+type_list      ::= type_spec ( "," type_spec )* ;
 
 fn_decl        ::= "fn" IDENTIFIER "(" param_list? ")" "->" return_type block ;
 
@@ -94,10 +98,18 @@ primary        ::= INTEGER
                  | STRING
                  | "true"
                  | "false"
+                 | match_expr
                  | fn_call
+                 | enum_constructor
                  | IDENTIFIER
                  | "(" expression ")"
                  | array_literal ;
+
+enum_constructor ::= IDENTIFIER "." IDENTIFIER "(" arg_list? ")" ;
+match_expr     ::= "match" "(" expression ")" "{" match_arm ( "," match_arm )* ","? "}" ;
+match_arm      ::= pattern "=>" expression ;
+pattern        ::= "_" | IDENTIFIER "." IDENTIFIER ( "(" binding_list? ")" )? ;
+binding_list   ::= IDENTIFIER ( "," IDENTIFIER )* ;
 
 array_literal  ::= "[" ( expression ( "," expression )* )? "]" ;
 fn_call        ::= IDENTIFIER "(" arg_list? ")" ;

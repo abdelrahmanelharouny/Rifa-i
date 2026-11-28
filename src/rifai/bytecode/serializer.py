@@ -6,6 +6,7 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import tempfile
 
 from rifai.bytecode.chunk import BytecodeFunction, CodeChunk
@@ -24,6 +25,7 @@ from rifai.bytecode.module import (
     MAGIC,
     is_constant,
 )
+from rifai.stdlib import BUILTIN_FUNCTIONS
 
 MAX_BYTECODE_SIZE = 16 * 1024 * 1024
 MAX_DEBUG_SOURCE_CHARS = 8 * 1024 * 1024
@@ -183,7 +185,22 @@ def _function_from_json(raw: object) -> BytecodeFunction:
     )
 
 
-def _debug_info_to_json(info: BytecodeDebugInfo | None) -> dict[str, object] | None:
+def _valid_debug_type_name(value: str, *, allow_nominal: bool) -> bool:
+    if value in {"int", "float", "bool", "string", "int[]", "float[]", "bool[]", "string[]"}:
+        return True
+    return (
+        allow_nominal
+        and value != "void"
+        and value not in BUILTIN_FUNCTIONS
+        and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value) is not None
+    )
+
+
+def _debug_info_to_json(
+    info: BytecodeDebugInfo | None,
+    *,
+    allow_nominal: bool = False,
+) -> dict[str, object] | None:
     if info is None:
         return None
     if not isinstance(info, BytecodeDebugInfo):
@@ -214,7 +231,7 @@ def _debug_info_to_json(info: BytecodeDebugInfo | None) -> dict[str, object] | N
                 or symbol.slot in seen_slots
                 or not isinstance(symbol.name, str) or not symbol.name
                 or not isinstance(symbol.type_name, str)
-                or symbol.type_name not in {"int", "float", "bool", "string", "int[]", "float[]", "bool[]", "string[]"}
+                or not _valid_debug_type_name(symbol.type_name, allow_nominal=allow_nominal)
             ):
                 raise BytecodeFormatError("Invalid or duplicate debug local-symbol entry.")
             seen_slots.add(symbol.slot)
@@ -227,7 +244,11 @@ def _debug_info_to_json(info: BytecodeDebugInfo | None) -> dict[str, object] | N
     return {"source_text": info.source_text, "local_symbols": chunks}
 
 
-def _debug_info_from_json(raw: object) -> BytecodeDebugInfo | None:
+def _debug_info_from_json(
+    raw: object,
+    *,
+    allow_nominal: bool = False,
+) -> BytecodeDebugInfo | None:
     if raw is None:
         return None
     if not isinstance(raw, dict) or set(raw) != {"source_text", "local_symbols"}:
@@ -253,7 +274,12 @@ def _debug_info_from_json(raw: object) -> BytecodeDebugInfo | None:
             if not isinstance(item, dict) or set(item) != {"slot", "name", "type"}:
                 raise BytecodeFormatError("Malformed debug local-symbol entry.")
             slot, name, type_name = item["slot"], item["name"], item["type"]
-            if type(slot) is not int or not isinstance(name, str) or not isinstance(type_name, str):
+            if (
+                type(slot) is not int
+                or not isinstance(name, str)
+                or not isinstance(type_name, str)
+                or not _valid_debug_type_name(type_name, allow_nominal=allow_nominal)
+            ):
                 raise BytecodeFormatError("Debug local-symbol fields have invalid types.")
             symbols.append(BytecodeDebugLocal(slot, name, type_name))
         chunks.append((chunk_name, tuple(symbols)))
@@ -311,7 +337,10 @@ class BytecodeSerializer:
                     _function_to_json(function) for function in module.functions
                 ]
             if module.format_version >= DEBUG_INFO_FORMAT_VERSION:
-                payload["debug_info"] = _debug_info_to_json(module.debug_info)
+                payload["debug_info"] = _debug_info_to_json(
+                    module.debug_info,
+                    allow_nominal=module.format_version >= NOMINAL_TYPES_FORMAT_VERSION,
+                )
             encoded = json.dumps(
                 payload,
                 ensure_ascii=False,
@@ -382,7 +411,10 @@ class BytecodeSerializer:
         if not isinstance(raw_functions, list):
             raise BytecodeFormatError("Function table must be an array.")
         functions = tuple(_function_from_json(item) for item in raw_functions)
-        debug_info = _debug_info_from_json(payload.get("debug_info"))
+        debug_info = _debug_info_from_json(
+                payload.get("debug_info"),
+                allow_nominal=version >= NOMINAL_TYPES_FORMAT_VERSION,
+            )
         return BytecodeModule(
             constants=constants,
             main=main,

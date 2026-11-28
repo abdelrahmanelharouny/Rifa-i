@@ -247,3 +247,60 @@ def test_bytecode_v6_compatibility_and_v7_opcode_version_gate():
     validation = BytecodeVerifier().verify(v6_typed)
     assert not validation.is_valid
     assert any("ARRAY_NEW_TYPED requires bytecode version 7" in item.message for item in validation.diagnostics)
+
+
+def test_bytecode_v6_rejects_recursive_types_in_nominal_schemas_and_debug_metadata():
+    from rifai.bytecode import (
+        BytecodeDebugInfo,
+        BytecodeDebugLocal,
+        BytecodeModule,
+        CodeChunk,
+        Instruction,
+        Opcode,
+        BytecodeFormatError,
+    )
+
+    v6_struct = BytecodeModule(
+        constants=(),
+        main=CodeChunk(
+            "<main>",
+            (
+                Instruction(Opcode.STRUCT_NEW, "Legacy|values:int[][]"),
+                Instruction(Opcode.POP),
+                Instruction(Opcode.HALT),
+            ),
+        ),
+        format_version=6,
+    )
+    struct_result = BytecodeVerifier().verify(v6_struct)
+    assert not struct_result.is_valid
+    assert any("invalid or oversized field schema" in item.message for item in struct_result.diagnostics)
+
+    v6_enum = BytecodeModule(
+        constants=(),
+        main=CodeChunk(
+            "<main>",
+            (
+                Instruction(Opcode.ENUM_NEW_PAYLOAD, "LegacyOption|Some|int[][]"),
+                Instruction(Opcode.POP),
+                Instruction(Opcode.HALT),
+            ),
+        ),
+        format_version=6,
+    )
+    enum_result = BytecodeVerifier().verify(v6_enum)
+    assert not enum_result.is_valid
+    assert any("invalid enum payload or pattern operand" in item.message for item in enum_result.diagnostics)
+
+    v6_debug = BytecodeModule(
+        constants=(),
+        main=CodeChunk("<main>", (Instruction(Opcode.HALT),), local_count=1),
+        format_version=6,
+        debug_info=BytecodeDebugInfo(
+            local_symbols=(
+                ("<main>", (BytecodeDebugLocal(0, "nested", "int[][]"),)),
+            )
+        ),
+    )
+    with pytest.raises(BytecodeFormatError, match="Invalid or duplicate debug local-symbol entry"):
+        BytecodeSerializer.to_bytes(v6_debug)

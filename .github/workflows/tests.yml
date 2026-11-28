@@ -133,7 +133,7 @@ jobs:
         run: |
           rifai check examples/phase19_generic_types.rif
           rifai run examples/phase19_generic_types.rif > /tmp/rifai-phase19.txt
-          python -c "from pathlib import Path; actual=Path('/tmp/rifai-phase19.txt').read_text(encoding='utf-8').strip().splitlines(); expected=['10', '3', '3', '0', '42', 'none', '10', 'rifai']; print('Phase 19 output:', actual); assert actual == expected"
+          python -c "from pathlib import Path; actual=Path('/tmp/rifai-phase19.txt').read_text(encoding='utf-8').strip().splitlines(); expected=['10', '3', '3', '0', '42', 'none', '10', 'rifai', '0']; print('Phase 19 output:', actual); assert actual == expected"
           rifai inspect examples/phase19_generic_types.rif --output /tmp/rifai-phase19.json
           python -c "import json; p=json.load(open('/tmp/rifai-phase19.json', encoding='utf-8')); g=p['stages']['generics']; assert p['success'] and g['success'] and len(g['generic_types']) >= 2 and g['type_specialization_count'] >= 3 and p['stages']['bytecode']['format_version'] == 7"
 

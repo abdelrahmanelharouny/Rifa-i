@@ -82,6 +82,15 @@ jobs:
           python -c "import json; p=json.load(open('/tmp/rifai-phase13.json', encoding='utf-8')); s=p['stages']; assert p['success'] and s['ir']['origin'] == 'direct-ast' and s['ir']['stats']['functions'] == 1 and s['ir']['stats']['blocks'] > 0 and s['bytecode']['format_version'] == 4"
           python -c "from pathlib import Path; from rifai import Compiler; p=Path('examples/phase13_direct_ast_to_ir.rif'); r=Compiler(optimize=False).compile(p.read_text(encoding='utf-8')); assert r.is_success and r.ir_origin == 'direct-ast' and r.module.debug_info.source_text == p.read_text(encoding='utf-8')"
 
+      - name: Validate Phase 14 advanced IR optimization
+        run: |
+          rifai check examples/phase14_advanced_ir_optimization.rif
+          rifai run examples/phase14_advanced_ir_optimization.rif --no-optimize > /tmp/rifai-phase14.txt
+          python -c "from pathlib import Path; assert Path('/tmp/rifai-phase14.txt').read_text(encoding='utf-8').strip().splitlines() == ['30', '30', '3']"
+          rifai inspect examples/phase14_advanced_ir_optimization.rif --no-optimize --output /tmp/rifai-phase14.json
+          python -c "import json; p=json.load(open('/tmp/rifai-phase14.json', encoding='utf-8')); assert p['success'] and p['stages']['ir']['origin'] == 'direct-ast' and p['stages']['ir_pipeline']['passes'][-1] == 'side-effect-analysis'"
+          python -c "from pathlib import Path; from rifai import Compiler; p=Path('examples/phase14_advanced_ir_optimization.rif'); r=Compiler(optimize=False, ir_optimize=True).compile(p.read_text(encoding='utf-8')); s=r.ir_stats; assert r.is_success and s.global_cse_eliminated > 0 and s.loop_invariants_hoisted > 0"
+
       - name: Verify interactive debugger smoke test
         run: |
           printf '%s\n' continue continue | rifai debug examples/phase7_debugger.rif --breakpoint 4 > /tmp/rifai-debug.txt

@@ -236,8 +236,6 @@ class GenericSpecializer:
         if rank:
             if constraint in {"Display", "Printable", "ArrayElement"}:
                 return True
-            if constraint == "Equatable":
-                return True
             return False
         is_enum = base in self._enum_type_names or (
             base in self._type_descriptors and self._type_descriptors[base][2] == "enum"

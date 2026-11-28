@@ -24,7 +24,7 @@ def test_inspect_exports_all_pipeline_stages_as_json_safe_data() -> None:
     assert snapshot["stages"]["ir_pipeline"]["passes"]
     assert snapshot["stages"]["ir_analysis"]["functions"]["<main>"]["dominators"]
     bytecode = snapshot["stages"]["bytecode"]
-    assert bytecode["format_version"] == 6
+    assert bytecode["format_version"] == 7
     assert bytecode["functions"][0]["name"] == "twice"
     assert bytecode["disassembly"].startswith("Rifa'i Bytecode")
     assert bytecode["optimization"] is not None

@@ -14,7 +14,7 @@ from rifai.frontend.ast_nodes import (
     FunctionDeclaration, GroupingExpression, IfStatement, IndexAssignmentStatement,
     IndexExpression, LiteralExpression, MatchExpression, MemberAssignmentStatement,
     MemberExpression, PrintStatement, Program, ReturnStatement, SourceSpan,
-    Statement, StructDeclaration, TypeAnnotation, UnaryExpression,
+    Statement, StructDeclaration, TypeAnnotation, TypeApplicationExpression, UnaryExpression,
     VariableDeclaration, VariableExpression, WhileStatement,
 )
 from rifai.frontend.tokens import Token
@@ -46,6 +46,8 @@ class GenericSpecializer:
         self._diagnostics: list[Diagnostic] = []
         self._functions: dict[str, FunctionDeclaration] = {}
         self._generic_functions: dict[str, FunctionDeclaration] = {}
+        self._generic_structs: dict[str, StructDeclaration] = {}
+        self._generic_enums: dict[str, EnumDeclaration] = {}
         self._function_returns: dict[str, str] = {}
         self._structs: dict[str, StructDeclaration] = {}
         self._enums: dict[str, EnumDeclaration] = {}
@@ -55,6 +57,12 @@ class GenericSpecializer:
         self._specialization_list: list[FunctionDeclaration] = []
         self._specialized_returns: dict[str, str] = {}
         self._reserved_names: set[str] = set()
+        self._specialized_type_cache: dict[tuple[str, tuple[str, ...]], str] = {}
+        self._specialized_type_positions: dict[tuple[str, tuple[str, ...]], int] = {}
+        self._specialized_type_list: list[Statement] = []
+        self._specialized_type_names: set[str] = set()
+        self._type_descriptors: dict[str, tuple[str, tuple[str, ...], str]] = {}
+        self._enum_type_names: set[str] = set()
 
     def specialize(self, program: Program) -> GenericSpecializationResult:
         self.__init__()
@@ -71,15 +79,22 @@ class GenericSpecializer:
             elif isinstance(declaration, StructDeclaration):
                 self._structs[declaration.name] = declaration
                 self._nominal_names.add(declaration.name)
+                if declaration.type_parameters:
+                    self._generic_structs[declaration.name] = declaration
             elif isinstance(declaration, EnumDeclaration):
                 self._enums[declaration.name] = declaration
                 self._nominal_names.add(declaration.name)
+                self._enum_type_names.add(declaration.name)
+                if declaration.type_parameters:
+                    self._generic_enums[declaration.name] = declaration
 
         self._reserved_names = set(self._functions) | self._nominal_names
         for declaration in program.declarations:
             if isinstance(declaration, FunctionDeclaration) and declaration.type_parameters:
                 self._generic_functions[declaration.name] = declaration
                 self._validate_generic_declaration(declaration)
+            elif isinstance(declaration, (StructDeclaration, EnumDeclaration)) and declaration.type_parameters:
+                self._validate_generic_type_declaration(declaration)
 
         if self._diagnostics:
             return GenericSpecializationResult(program, tuple(self._diagnostics))
@@ -91,14 +106,27 @@ class GenericSpecializer:
                 if declaration.type_parameters:
                     continue
                 rewritten.append(self._rewrite_function(declaration))
-            elif isinstance(declaration, Statement):
-                rewritten.append(self._rewrite_statement(declaration, globals_, {}))
+            elif isinstance(declaration, StructDeclaration):
+                if declaration.type_parameters:
+                    continue
+                rewritten.append(self._rewrite_struct_declaration(declaration, {}))
+            elif isinstance(declaration, EnumDeclaration):
+                if declaration.type_parameters:
+                    continue
+                rewritten.append(self._rewrite_enum_declaration(declaration, {}))
             else:
-                rewritten.append(declaration)
+                rewritten.append(self._rewrite_statement(declaration, globals_, {}))
 
         if self._diagnostics:
             return GenericSpecializationResult(program, tuple(self._diagnostics))
-        expanded = replace(program, declarations=tuple([*rewritten, *self._specialization_list]))
+        expanded = replace(
+            program,
+            declarations=tuple([
+                *rewritten,
+                *self._specialized_type_list,
+                *self._specialization_list,
+            ]),
+        )
         return GenericSpecializationResult(expanded, ())
 
     def _error(self, span: SourceSpan, message: str) -> None:

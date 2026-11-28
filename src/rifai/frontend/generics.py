@@ -898,20 +898,12 @@ class GenericSpecializer:
         self._specialization_list[self._specialization_positions[key]] = specialized
         return name
 
-    @staticmethod
-    def _substitute_type_name(name: str, substitutions: dict[str, str]) -> str:
-        if name in substitutions:
-            return substitutions[name]
-        if name.endswith("[]") and name[:-2] in substitutions:
-            return substitutions[name[:-2]] + "[]"
-        return name
+    def _substitute_type_name(self, name: str, substitutions: dict[str, str]) -> str:
+        return self._specialize_type_name(name, SourceSpan(1, 1, 0, 0), substitutions)
 
     def _substitute_annotation(self, annotation: TypeAnnotation | None,
-                                substitutions: dict[str, str]) -> TypeAnnotation | None:
-        if annotation is None:
-            return None
-        name = self._substitute_type_name(annotation.name, substitutions)
-        return replace(annotation, name=name) if name != annotation.name else annotation
+                               substitutions: dict[str, str]) -> TypeAnnotation | None:
+        return self._specialize_annotation(annotation, substitutions)
 
     def _infer_expression_type(self, expr: Expression, env: dict[str, str]) -> str | None:
         if isinstance(expr, LiteralExpression):
@@ -927,7 +919,7 @@ class GenericSpecializer:
             if not expr.elements: return None
             types = [self._infer_expression_type(item, env) for item in expr.elements]
             if any(item is None for item in types) or len(set(types)) != 1: return None
-            return types[0] + "[]" if types[0] in {"int", "float", "bool", "string"} else None
+            return types[0] + "[]"
         if isinstance(expr, EnumConstructorExpression):
             return expr.enum_name
         if isinstance(expr, MemberExpression):

@@ -464,7 +464,7 @@ class BytecodeVerifier:
                         report(f"{opcode.value} has an invalid field name.", instruction)
                         continue
                     if opcode is Opcode.ENUM_NEW and not _valid_enum_variant(operand):
-                        report("ENUM_NEW requires a valid Type.Variant operand.", instruction)
+                        report("ENUM_NEW requires a valid Enum|Variants|SelectedVariant schema.", instruction)
                         continue
                 elif opcode is Opcode.CALL:
                     if operand in BUILTIN_ARITIES and not supports_nominal_types:

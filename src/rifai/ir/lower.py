@@ -143,6 +143,7 @@ class IRToBytecode:
         block_offsets: dict[int, int] = {}
         jump_patches: list[tuple[int, int]] = []
         false_edge_stubs: list[tuple[int, int, tuple[int, ...], object]] = []
+        halt_patches: list[int] = []
 
         def emit(opcode: Opcode, operand=None, location=None) -> int:
             output.append(Instruction(opcode, operand, location))
@@ -227,7 +228,10 @@ class IRToBytecode:
                     emit(Opcode.LOAD_LOCAL, slot_for(term.value), term.location)
                 emit(Opcode.RETURN, location=term.location)
             elif isinstance(term, IRHalt):
-                emit(Opcode.HALT, location=term.location)
+                # Main HALT must be the final bytecode instruction. A materialized
+                # branch path appends edge stubs after normal blocks, so route the
+                # halt block to one final sentinel emitted after all stubs.
+                halt_patches.append(emit(Opcode.JUMP, -1, term.location))
             else:
                 raise ValueError(
                     f"Unsupported terminator in IR function '{function.name}'."
@@ -244,6 +248,17 @@ class IRToBytecode:
             emit_edge_copies(arguments, target_id, location)
             patch = emit(Opcode.JUMP, -1, location)
             jump_patches.append((patch, target_id))
+
+        if halt_patches:
+            halt_offset = len(output)
+            emit(Opcode.HALT)
+            for instruction_index in halt_patches:
+                original = output[instruction_index]
+                output[instruction_index] = Instruction(
+                    Opcode.JUMP,
+                    halt_offset,
+                    original.location,
+                )
 
         for instruction_index, target_id in jump_patches:
             target_offset = block_offsets.get(target_id)

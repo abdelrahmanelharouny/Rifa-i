@@ -196,6 +196,40 @@ def _constant_facts(function: IRFunction, constants: tuple[object, ...]) -> tupl
     return known, len(parameter_constants)
 
 
+def _requires_materialized_values(function: IRFunction) -> bool:
+    definitions: dict[int, int] = {}
+    uses: dict[int, list[int]] = {}
+    for block in function.blocks:
+        for parameter in block.parameters:
+            definitions[parameter.value_id] = block.block_id
+        for operation in block.operations:
+            for output in operation.outputs:
+                definitions[output.value_id] = block.block_id
+            for value_id in operation.inputs:
+                uses.setdefault(value_id, []).append(block.block_id)
+        term = block.terminator
+        if isinstance(term, IRJump):
+            values = term.arguments
+        elif isinstance(term, IRBranch):
+            values = (
+                term.condition,
+                *term.false_arguments,
+                *term.true_arguments,
+            )
+        elif isinstance(term, IRReturn) and term.value is not None:
+            values = (term.value,)
+        else:
+            values = ()
+        for value_id in values:
+            uses.setdefault(value_id, []).append(block.block_id)
+
+    return any(
+        len(uses.get(value_id, ())) != 1
+        or uses[value_id][0] != definition_block
+        for value_id, definition_block in definitions.items()
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class IRPassStats:
     passes: tuple[str, ...]
@@ -537,6 +571,14 @@ class IRPassManager:
                     break
 
         normalized, renumbered = self.numbering.run(optimized)
+        requires_materialized = any(
+            _requires_materialized_values(function)
+            for function in (normalized.main, *normalized.functions)
+        )
+        normalized = replace(
+            normalized,
+            requires_materialized_values=requires_materialized,
+        )
         final = self.verifier.verify(normalized)
         if not final.is_valid:
             raise RuntimeError(

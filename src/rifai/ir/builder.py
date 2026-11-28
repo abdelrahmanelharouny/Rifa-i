@@ -9,6 +9,7 @@ from rifai.bytecode.chunk import BytecodeFunction, CodeChunk
 from rifai.bytecode.instructions import Instruction, Opcode, stack_delta
 from rifai.bytecode.module import BytecodeModule
 from rifai.bytecode.verifier import BytecodeVerifier
+from rifai.stdlib import BUILTIN_ARITIES
 from rifai.ir.model import (
     IRBlock,
     IRBranch,
@@ -82,8 +83,32 @@ def _operation_type(
     if opcode in _BINARY:
         return types[0] if types[0] == types[1] else None
     if opcode is Opcode.CALL:
-        target = functions[instruction.operand]
-        return target.return_type if target.returns_value else None
+        target = functions.get(instruction.operand)
+        if target is not None:
+            return target.return_type if target.returns_value else None
+        builtin_result_types = {
+            "sqrt": "float",
+            "round": "int",
+            "to_int": "int",
+            "to_float": "float",
+            "to_string": "string",
+            "contains": "bool",
+            "starts_with": "bool",
+            "ends_with": "bool",
+            "substring": "string",
+            "read_text": "string",
+            "write_text": "bool",
+            "file_exists": "bool",
+        }
+        if instruction.operand in ("abs", "min", "max"):
+            return types[0] if types and all(item == types[0] for item in types) else None
+        return builtin_result_types.get(instruction.operand)
+    if opcode is Opcode.STRUCT_NEW:
+        return instruction.operand.split("|", 1)[0] if isinstance(instruction.operand, str) else None
+    if opcode is Opcode.ENUM_NEW:
+        return instruction.operand.split("|", 1)[0] if isinstance(instruction.operand, str) else None
+    if opcode is Opcode.FIELD_GET:
+        return None
     if opcode in _ARRAY_TYPES:
         return _ARRAY_TYPES[opcode]
     if opcode is Opcode.ARRAY_GET:
@@ -102,8 +127,10 @@ def _stack_effect(
 ) -> tuple[int, int]:
     opcode = instruction.opcode
     if opcode is Opcode.CALL:
-        target = functions[instruction.operand]
-        return target.arity, 1 if target.returns_value else 0
+        target = functions.get(instruction.operand)
+        if target is not None:
+            return target.arity, 1 if target.returns_value else 0
+        return BUILTIN_ARITIES[instruction.operand], 1
     if opcode in _ARRAY_TYPES:
         return instruction.operand, 1
     if opcode is Opcode.RETURN:
@@ -117,6 +144,7 @@ def _stack_effect(
         Opcode.PRINT: 1, Opcode.JUMP_IF_FALSE: 1, Opcode.NEGATE: 1,
         Opcode.NOT: 1, Opcode.LENGTH: 1, Opcode.ARRAY_POP: 1,
         Opcode.ARRAY_GET: 2, Opcode.ARRAY_SET: 3, Opcode.ARRAY_PUSH: 2,
+        Opcode.FIELD_GET: 1, Opcode.FIELD_SET: 2,
     }.get(opcode)
     if required is None and opcode in _BINARY:
         required = 2

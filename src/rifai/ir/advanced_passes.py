@@ -256,8 +256,17 @@ class IRGlobalCommonSubexpressionEliminationPass:
                     terminator=_rewrite_terminator(block.terminator, aliases),
                 )
                 aliases_at_exit[block_id] = aliases
+                child_available = {
+                    key: value
+                    for key, value in available.items()
+                    if not (key and key[0] == "LOAD_LOCAL")
+                }
                 for child in children.get(block_id, ()):
-                    visit(child, aliases, available)
+                    # A local may be reassigned on a sibling path that does
+                    # not dominate the join. Do not carry cached memory reads
+                    # into successor blocks; immutable SSA expressions remain
+                    # available across the dominator tree.
+                    visit(child, aliases, child_available)
 
             if function.blocks and function.blocks[0].block_id in reachable:
                 visit(function.blocks[0].block_id, {}, {})

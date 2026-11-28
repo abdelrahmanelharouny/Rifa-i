@@ -440,7 +440,7 @@ class IRVerifier:
             type_name = operation.operand.split("|", 1)[0] if isinstance(operation.operand, str) else None
             check_output(type_name)
         elif opcode is Opcode.ENUM_NEW:
-            type_name = operation.operand.split(".", 1)[0] if isinstance(operation.operand, str) else None
+            type_name = operation.operand.split("|", 1)[0] if isinstance(operation.operand, str) else None
             check_output(type_name)
         elif opcode in (Opcode.FIELD_GET, Opcode.FIELD_SET):
             if input_types and input_types[0] is not None and input_types[0] in {

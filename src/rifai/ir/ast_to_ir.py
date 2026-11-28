@@ -365,6 +365,11 @@ class ASTToIR:
             id(symbol): symbol
             for symbol in self._semantic.variable_bindings.values()
         }
+        symbols_by_id.update({
+            id(symbol): symbol
+            for bindings in self._semantic.pattern_bindings.values()
+            for symbol in bindings
+        })
         local_symbols = tuple(
             IRLocal(
                 slot=slot,

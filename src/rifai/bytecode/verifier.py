@@ -556,7 +556,8 @@ class BytecodeVerifier:
                 before = depths[index]
 
                 if opcode is Opcode.ENUM_NEW_PAYLOAD:
-                    payload_types = instruction.operand.split("|", 2)[2].split("|") if False else instruction.operand.split("|", 2)[2].split(",") if instruction.operand.split("|", 2)[2] else []
+                    payload_text = instruction.operand.split("|", 2)[2]
+                    payload_types = payload_text.split(",") if payload_text else []
                     required = len(payload_types)
                     delta = 1 - required
                 elif opcode is Opcode.ENUM_IS or opcode is Opcode.ENUM_GET:

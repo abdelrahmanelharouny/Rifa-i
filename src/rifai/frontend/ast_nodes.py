@@ -143,6 +143,7 @@ class FunctionDeclaration(Statement):
     return_type: TypeAnnotation
     body: BlockStatement
     span: SourceSpan
+    type_parameters: tuple[Token, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -392,7 +393,8 @@ def _node_label(node: ASTNode) -> str:
         return f"EnumVariant {node.name}({payload})"
     if isinstance(node, FunctionDeclaration):
         params = ", ".join(f"{p.name}: {p.type_annotation.name}" for p in node.params)
-        return f"FunctionDeclaration {node.name}({params}) -> {node.return_type.name}"
+        generic = "<" + ", ".join(item.lexeme for item in node.type_parameters) + ">" if node.type_parameters else ""
+        return f"FunctionDeclaration {node.name}{generic}({params}) -> {node.return_type.name}"
     if isinstance(node, Parameter):
         return f"Parameter {node.name}: {node.type_annotation.name}"
     if isinstance(node, VariableDeclaration):

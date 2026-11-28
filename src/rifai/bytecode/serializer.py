@@ -350,7 +350,8 @@ class BytecodeSerializer:
         version = payload.get("format_version")
         if type(version) is not int or version not in (
             LEGACY_FORMAT_VERSION, FUNCTIONS_FORMAT_VERSION,
-            DEBUG_INFO_FORMAT_VERSION, COLLECTIONS_FORMAT_VERSION
+            DEBUG_INFO_FORMAT_VERSION, COLLECTIONS_FORMAT_VERSION,
+            NOMINAL_TYPES_FORMAT_VERSION
         ):
             raise BytecodeFormatError(
                 f"Unsupported bytecode version {version!r}; supported versions are 1, 2, 3, and 4."

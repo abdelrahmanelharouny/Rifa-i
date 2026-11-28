@@ -148,14 +148,25 @@ def inspect_source(
         return result
 
     specialization = GenericSpecializer().specialize(parsed.program)
+    from rifai.frontend.ast_nodes import StructDeclaration, EnumDeclaration
     generic_templates = [
         declaration for declaration in parsed.program.declarations
         if isinstance(declaration, FunctionDeclaration) and declaration.type_parameters
+    ]
+    generic_types = [
+        declaration for declaration in parsed.program.declarations
+        if isinstance(declaration, (StructDeclaration, EnumDeclaration))
+        and declaration.type_parameters
     ]
     specialized_functions = [
         declaration for declaration in specialization.program.declarations
         if isinstance(declaration, FunctionDeclaration)
         and declaration.name.startswith("__rifai_generic_")
+    ]
+    specialized_types = [
+        declaration for declaration in specialization.program.declarations
+        if isinstance(declaration, (StructDeclaration, EnumDeclaration))
+        and declaration.name.startswith("__rifai_generic_type_")
     ]
     result["stages"]["generics"] = {
         "success": specialization.is_valid,
@@ -163,8 +174,18 @@ def inspect_source(
             {
                 "name": function.name,
                 "type_parameters": [item.lexeme for item in function.type_parameters],
+                "type_parameter_bounds": [list(item) for item in function.type_parameter_bounds],
             }
             for function in generic_templates
+        ],
+        "generic_types": [
+            {
+                "name": declaration.name,
+                "kind": "struct" if isinstance(declaration, StructDeclaration) else "enum",
+                "type_parameters": [item.lexeme for item in declaration.type_parameters],
+                "type_parameter_bounds": [list(item) for item in declaration.type_parameter_bounds],
+            }
+            for declaration in generic_types
         ],
         "specialization_count": len(specialized_functions),
         "specializations": [
@@ -174,6 +195,25 @@ def inspect_source(
                 "return_type": function.return_type.name,
             }
             for function in specialized_functions
+        ],
+        "type_specialization_count": len(specialized_types),
+        "type_specializations": [
+            {
+                "name": declaration.name,
+                "kind": "struct" if isinstance(declaration, StructDeclaration) else "enum",
+                "fields": (
+                    {item.name: item.type_annotation.name for item in declaration.fields}
+                    if isinstance(declaration, StructDeclaration) else None
+                ),
+                "variants": (
+                    {
+                        variant.name: [item.name for item in variant.payload_types]
+                        for variant in declaration.variants
+                    }
+                    if isinstance(declaration, EnumDeclaration) else None
+                ),
+            }
+            for declaration in specialized_types
         ],
     }
     if not specialization.is_valid:

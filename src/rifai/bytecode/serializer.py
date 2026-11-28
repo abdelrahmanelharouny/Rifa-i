@@ -186,9 +186,19 @@ def _function_from_json(raw: object) -> BytecodeFunction:
     )
 
 
-def _valid_debug_type_name(value: str, *, allow_nominal: bool) -> bool:
+def _valid_debug_type_name(
+    value: str,
+    *,
+    allow_nominal: bool,
+    allow_generic_types: bool = False,
+) -> bool:
     if value.endswith("[]"):
-        return _valid_debug_type_name(value[:-2], allow_nominal=allow_nominal)
+        element = value[:-2]
+        if allow_generic_types:
+            return _valid_debug_type_name(
+                element, allow_nominal=allow_nominal, allow_generic_types=True
+            )
+        return value in {"int[]", "float[]", "bool[]", "string[]"}
     if value in {"int", "float", "bool", "string"}:
         return True
     return (
@@ -203,6 +213,7 @@ def _debug_info_to_json(
     info: BytecodeDebugInfo | None,
     *,
     allow_nominal: bool = False,
+    allow_generic_types: bool = False,
 ) -> dict[str, object] | None:
     if info is None:
         return None
@@ -234,7 +245,11 @@ def _debug_info_to_json(
                 or symbol.slot in seen_slots
                 or not isinstance(symbol.name, str) or not symbol.name
                 or not isinstance(symbol.type_name, str)
-                or not _valid_debug_type_name(symbol.type_name, allow_nominal=allow_nominal)
+                or not _valid_debug_type_name(
+                    symbol.type_name,
+                    allow_nominal=allow_nominal,
+                    allow_generic_types=allow_generic_types,
+                )
             ):
                 raise BytecodeFormatError("Invalid or duplicate debug local-symbol entry.")
             seen_slots.add(symbol.slot)
@@ -251,6 +266,7 @@ def _debug_info_from_json(
     raw: object,
     *,
     allow_nominal: bool = False,
+    allow_generic_types: bool = False,
 ) -> BytecodeDebugInfo | None:
     if raw is None:
         return None
@@ -281,7 +297,11 @@ def _debug_info_from_json(
                 type(slot) is not int
                 or not isinstance(name, str)
                 or not isinstance(type_name, str)
-                or not _valid_debug_type_name(type_name, allow_nominal=allow_nominal)
+                or not _valid_debug_type_name(
+                    type_name,
+                    allow_nominal=allow_nominal,
+                    allow_generic_types=allow_generic_types,
+                )
             ):
                 raise BytecodeFormatError("Debug local-symbol fields have invalid types.")
             symbols.append(BytecodeDebugLocal(slot, name, type_name))
@@ -346,6 +366,7 @@ class BytecodeSerializer:
                 payload["debug_info"] = _debug_info_to_json(
                     module.debug_info,
                     allow_nominal=module.format_version >= NOMINAL_TYPES_FORMAT_VERSION,
+                    allow_generic_types=module.format_version >= GENERIC_TYPES_FORMAT_VERSION,
                 )
             encoded = json.dumps(
                 payload,
@@ -421,6 +442,7 @@ class BytecodeSerializer:
         debug_info = _debug_info_from_json(
                 payload.get("debug_info"),
                 allow_nominal=version >= NOMINAL_TYPES_FORMAT_VERSION,
+                allow_generic_types=version >= GENERIC_TYPES_FORMAT_VERSION,
             )
         return BytecodeModule(
             constants=constants,

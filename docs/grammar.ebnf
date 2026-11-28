@@ -1,9 +1,10 @@
 (* ============================================================================
- * Rifa'i Programming Language — Formal EBNF Grammar (Version 3.0 / Phase 15)
+ * Rifa'i Programming Language — Formal EBNF Grammar (Version 3.1 / Phase 16)
  * ============================================================================
  *
  * Phase 15 adds relative source imports, nominal structs and unit enums,
  * inferred local declarations, and postfix member access.
+ * Phase 16 adds for loops, break/continue, and short-circuit logical evaluation.
  *
  * Imports are top-level and resolve relative to the importing file, confined
  * to the root source directory. Imported declarations share one global
@@ -46,6 +47,9 @@ statement      ::= var_decl
                  | assign_stmt
                  | if_stmt
                  | while_stmt
+                 | for_stmt
+                 | break_stmt
+                 | continue_stmt
                  | return_stmt
                  | print_stmt
                  | block
@@ -61,6 +65,15 @@ if_stmt        ::= "if" "(" expression ")" block
                    ( "else" ( if_stmt | block ) )? ;
 
 while_stmt     ::= "while" "(" expression ")" block ;
+
+for_stmt       ::= "for" "(" for_initializer? ";" expression? ";" for_increment? ")" block ;
+for_initializer ::= var_decl | for_clause ;
+for_increment  ::= for_clause ;
+for_clause     ::= postfix_expr "=" expression | expression ;
+
+break_stmt     ::= "break" ";" ;
+continue_stmt  ::= "continue" ";" ;
+
 return_stmt    ::= "return" expression? ";" ;
 print_stmt     ::= "print" "(" expression ")" ";" ;
 expr_stmt      ::= expression ";" ;

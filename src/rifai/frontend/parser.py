@@ -25,6 +25,10 @@ from rifai.frontend.ast_nodes import (
     StructDeclaration,
     StructField,
     EnumDeclaration,
+    EnumVariant,
+    EnumConstructorExpression,
+    MatchArm,
+    MatchExpression,
     IfStatement,
     LiteralExpression,
     Parameter,
@@ -242,10 +246,25 @@ class Parser:
         keyword = self._consume(TokenType.ENUM, "Expected 'enum'.")
         name = self._consume(TokenType.IDENTIFIER, "Expected enum name.")
         self._consume(TokenType.LEFT_BRACE, "Expected '{' after enum name.")
-        variants: list[Token] = []
+        variants: list[EnumVariant] = []
         if not self._check(TokenType.RIGHT_BRACE):
             while True:
-                variants.append(self._consume(TokenType.IDENTIFIER, "Expected enum variant name."))
+                variant_token = self._consume(TokenType.IDENTIFIER, "Expected enum variant name.")
+                payload: list[TypeAnnotation] = []
+                end: Token | SourceSpan = variant_token
+                if self._match(TokenType.LEFT_PAREN) is not None:
+                    if not self._check(TokenType.RIGHT_PAREN):
+                        while True:
+                            payload.append(self._parse_type_annotation("Expected enum payload type."))
+                            if self._match(TokenType.COMMA) is None:
+                                break
+                    end = self._consume(TokenType.RIGHT_PAREN, "Expected ')' after enum payload types.")
+                variants.append(EnumVariant(
+                    name=variant_token.lexeme,
+                    name_token=variant_token,
+                    payload_types=tuple(payload),
+                    span=SourceSpan.between(variant_token, end),
+                ))
                 if self._match(TokenType.COMMA) is None:
                     break
                 if self._check(TokenType.RIGHT_BRACE):
@@ -700,7 +719,9 @@ class Parser:
 
     def _parse_primary(self) -> Expression:
         expression: Expression
-        if (
+        if self._check(TokenType.MATCH):
+            expression = self._parse_match_expression()
+        elif (
             token := self._match(
                 TokenType.INTEGER,
                 TokenType.FLOAT,
@@ -716,14 +737,11 @@ class Parser:
                 span=SourceSpan.from_token(token),
             )
         elif (ident := self._match(TokenType.IDENTIFIER)) is not None:
-            if self._match(TokenType.LEFT_PAREN) is not None:
-                expression = self._finish_function_call(ident)
-            else:
-                expression = VariableExpression(
-                    name=ident.lexeme,
-                    token=ident,
-                    span=SourceSpan.from_token(ident),
-                )
+            expression = VariableExpression(
+                name=ident.lexeme,
+                token=ident,
+                span=SourceSpan.from_token(ident),
+            )
         elif (open_paren := self._match(TokenType.LEFT_PAREN)) is not None:
             inner = self._parse_expression()
             close_paren = self._consume(
@@ -754,6 +772,30 @@ class Parser:
             raise self._error(current, f"Expected expression, got '{current.lexeme}'.")
 
         while True:
+            if self._match(TokenType.LEFT_PAREN) is not None:
+                arguments, close = self._parse_call_arguments()
+                if isinstance(expression, VariableExpression):
+                    expression = FunctionCallExpression(
+                        callee=expression.name,
+                        callee_token=expression.token,
+                        arguments=arguments,
+                        span=SourceSpan.between(expression.span, close),
+                    )
+                elif (
+                    isinstance(expression, MemberExpression)
+                    and isinstance(expression.object, VariableExpression)
+                ):
+                    expression = EnumConstructorExpression(
+                        enum_name=expression.object.name,
+                        enum_token=expression.object.token,
+                        variant_name=expression.name,
+                        variant_token=expression.name_token,
+                        arguments=arguments,
+                        span=SourceSpan.between(expression.span, close),
+                    )
+                else:
+                    raise self._error(self._previous(), "Only functions and enum variants can be called.")
+                continue
             if self._match(TokenType.LEFT_BRACKET) is not None:
                 index = self._parse_expression()
                 close_bracket = self._consume(
@@ -777,20 +819,71 @@ class Parser:
             break
         return expression
 
-    def _finish_function_call(self, callee: Token) -> FunctionCallExpression:
+    def _parse_call_arguments(self) -> tuple[tuple[Expression, ...], Token]:
         arguments: list[Expression] = []
         if not self._check(TokenType.RIGHT_PAREN):
             while True:
                 arguments.append(self._parse_expression())
                 if self._match(TokenType.COMMA) is None:
                     break
+        close = self._consume(TokenType.RIGHT_PAREN, "Expected ')' after arguments.")
+        return tuple(arguments), close
 
-        close_paren = self._consume(
-            TokenType.RIGHT_PAREN, "Expected ')' after function arguments."
-        )
+    def _parse_match_expression(self) -> MatchExpression:
+        keyword = self._consume(TokenType.MATCH, "Expected 'match'.")
+        self._consume(TokenType.LEFT_PAREN, "Expected '(' after 'match'.")
+        subject = self._parse_expression()
+        self._consume(TokenType.RIGHT_PAREN, "Expected ')' after match subject.")
+        self._consume(TokenType.LEFT_BRACE, "Expected '{' before match arms.")
+        arms: list[MatchArm] = []
+        while not self._check(TokenType.RIGHT_BRACE) and not self._is_at_end():
+            start = self._peek()
+            enum_name: str | None = None
+            enum_token: Token | None = None
+            variant_name: str | None = None
+            variant_token: Token | None = None
+            bindings: list[Token] = []
+            wildcard = False
+            if self._check(TokenType.IDENTIFIER) and self._peek().lexeme == "_":
+                self._advance()
+                wildcard = True
+            else:
+                enum_token = self._consume(TokenType.IDENTIFIER, "Expected enum pattern or '_'.")
+                enum_name = enum_token.lexeme
+                self._consume(TokenType.DOT, "Expected '.' in enum variant pattern.")
+                variant_token = self._consume(TokenType.IDENTIFIER, "Expected enum variant name.")
+                variant_name = variant_token.lexeme
+                if self._match(TokenType.LEFT_PAREN) is not None:
+                    if not self._check(TokenType.RIGHT_PAREN):
+                        while True:
+                            bindings.append(self._consume(TokenType.IDENTIFIER, "Expected payload binding name."))
+                            if self._match(TokenType.COMMA) is None:
+                                break
+                    self._consume(TokenType.RIGHT_PAREN, "Expected ')' after enum pattern bindings.")
+            self._consume(TokenType.FAT_ARROW, "Expected '=>' after match pattern.")
+            body = self._parse_expression()
+            arms.append(MatchArm(
+                enum_name=enum_name,
+                enum_token=enum_token,
+                variant_name=variant_name,
+                variant_token=variant_token,
+                bindings=tuple(bindings),
+                wildcard=wildcard,
+                body=body,
+                span=SourceSpan.between(start, body.span),
+            ))
+            if self._match(TokenType.COMMA) is None:
+                break
+        close = self._consume(TokenType.RIGHT_BRACE, "Expected '}' after match arms.")
+        if not arms:
+            raise self._error(close, "A match expression must contain at least one arm.")
+        return MatchExpression(subject=subject, arms=tuple(arms), span=SourceSpan.between(keyword, close))
+
+    def _finish_function_call(self, callee: Token) -> FunctionCallExpression:
+        arguments, close = self._parse_call_arguments()
         return FunctionCallExpression(
             callee=callee.lexeme,
             callee_token=callee,
-            arguments=tuple(arguments),
-            span=SourceSpan.between(callee, close_paren),
+            arguments=arguments,
+            span=SourceSpan.between(callee, close),
         )

@@ -13,6 +13,7 @@ from rifai.bytecode import (
     BytecodeFunction,
     COLLECTIONS_FORMAT_VERSION,
     NOMINAL_TYPES_FORMAT_VERSION,
+    ALGEBRAIC_TYPES_FORMAT_VERSION,
     DEBUG_INFO_FORMAT_VERSION,
     BytecodeModule,
     BytecodeOptimizer,
@@ -83,7 +84,7 @@ from rifai.vm import (
     VMRuntimeError,
 )
 
-__version__ = "0.17.0"
+__version__ = "0.18.0"
 
 __all__ = [
     "BasicBlock",
@@ -130,6 +131,7 @@ __all__ = [
     "BytecodeDebugLocal",
     "COLLECTIONS_FORMAT_VERSION",
     "NOMINAL_TYPES_FORMAT_VERSION",
+    "ALGEBRAIC_TYPES_FORMAT_VERSION",
     "DEBUG_INFO_FORMAT_VERSION",
     "ArrayValue",
     "StructValue",

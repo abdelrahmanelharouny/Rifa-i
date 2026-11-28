@@ -21,6 +21,8 @@ from rifai.frontend.ast_nodes import (
     Expression,
     ExpressionStatement,
     FunctionCallExpression,
+    EnumConstructorExpression,
+    MatchExpression,
     FunctionDeclaration,
     GroupingExpression,
     IndexAssignmentStatement,
@@ -150,6 +152,13 @@ def _walk(root: ASTNode):
     elif isinstance(root, FunctionCallExpression):
         for argument in root.arguments:
             yield from _walk(argument)
+    elif isinstance(root, EnumConstructorExpression):
+        for argument in root.arguments:
+            yield from _walk(argument)
+    elif isinstance(root, MatchExpression):
+        yield from _walk(root.subject)
+        for arm in root.arms:
+            yield from _walk(arm.body)
 
 
 class ASTToIR:
@@ -256,6 +265,10 @@ class ASTToIR:
             for node in _walk(root):
                 if isinstance(node, (VariableDeclaration, AssignmentStatement, VariableExpression)):
                     add(semantic.variable_bindings.get(id(node)))
+                if isinstance(node, MatchExpression):
+                    for arm in node.arms:
+                        for symbol in semantic.pattern_bindings.get(id(arm), ()):
+                            add(symbol)
         return slots
 
     def _build_main(
@@ -352,6 +365,11 @@ class ASTToIR:
             id(symbol): symbol
             for symbol in self._semantic.variable_bindings.values()
         }
+        symbols_by_id.update({
+            id(symbol): symbol
+            for bindings in self._semantic.pattern_bindings.values()
+            for symbol in bindings
+        })
         local_symbols = tuple(
             IRLocal(
                 slot=slot,
@@ -763,6 +781,75 @@ class ASTToIR:
         self._set_current(join_id)
         return join_value
 
+    def _compile_match_expression(self, expression: MatchExpression) -> int:
+        if self._semantic is None:
+            raise RuntimeError("ASTToIR has no active semantic result.")
+        subject_type = self._type_of(expression.subject)
+        subject = self._compile_value(expression.subject)
+        join_id = self._new_block((self._type_of(expression),))
+        join_value = self._blocks[join_id].parameters[0].value_id
+        current_test = self._current
+        if current_test is None:
+            raise RuntimeError("Match subject did not leave an active block.")
+
+        for index, arm in enumerate(expression.arms):
+            body_id = self._new_block()
+            is_last = index == len(expression.arms) - 1
+            if arm.wildcard or is_last:
+                self._terminate(IRJump(body_id, (), False, self._location(arm.span)))
+                self._set_current(body_id)
+            else:
+                variant = self._semantic.match_variant_bindings.get(id(arm))
+                if variant is None:
+                    raise ValueError("Missing semantic enum-variant match binding.")
+                test = self._emit(
+                    Opcode.ENUM_IS,
+                    (subject,),
+                    output_type="bool",
+                    operand=f"{subject_type}|{variant.name}",
+                    span=arm.span,
+                )
+                if test is None:
+                    raise RuntimeError("ENUM_IS did not produce a boolean value.")
+                next_test = self._new_block()
+                self._terminate(IRBranch(
+                    condition=test,
+                    false_target=next_test,
+                    true_target=body_id,
+                    false_arguments=(),
+                    true_arguments=(),
+                    location=self._location(arm.span),
+                ))
+                self._set_current(body_id)
+
+            variant = self._semantic.match_variant_bindings.get(id(arm))
+            if variant is not None:
+                symbols = self._semantic.pattern_bindings.get(id(arm), ())
+                enum_name = subject_type
+                for payload_index, (token, symbol) in enumerate(zip(arm.bindings, symbols)):
+                    payload_type = variant.payload_types[payload_index].name
+                    payload_value = self._emit(
+                        Opcode.ENUM_GET,
+                        (subject,),
+                        output_type=payload_type,
+                        operand=f"{enum_name}|{variant.name}|{payload_index}|{payload_type}",
+                        span=SourceSpan.from_token(token),
+                    )
+                    if payload_value is None:
+                        raise RuntimeError("ENUM_GET did not produce a payload value.")
+                    self._store(symbol, payload_value, SourceSpan.from_token(token))
+
+            arm_value = self._compile_value(arm.body)
+            if self._current is not None:
+                self._terminate(IRJump(join_id, (arm_value,), False, self._location(arm.body.span)))
+                self._set_current(None)
+
+            if not arm.wildcard and not is_last:
+                self._set_current(next_test)
+
+        self._set_current(join_id)
+        return join_value
+
     def _compile_expression(self, expression: Expression) -> int | None:
         result_type = self._type_of(expression)
 
@@ -809,7 +896,7 @@ class ASTToIR:
                 result = self._emit(
                     Opcode.ENUM_NEW,
                     output_type=result_type,
-                    operand=(enum_variant[0] + "|" + ",".join(item.lexeme for item in self._semantic.enum_declarations[enum_variant[0]].variants) + "|" + enum_variant[1]),
+                    operand=(enum_variant[0] + "|" + ",".join(item.name for item in self._semantic.enum_declarations[enum_variant[0]].variants) + "|" + enum_variant[1]),
                     span=expression.span,
                 )
             else:
@@ -851,6 +938,24 @@ class ASTToIR:
                     output_type=result_type,
                     span=expression.span,
                 )
+        elif isinstance(expression, EnumConstructorExpression):
+            if self._semantic is None:
+                raise RuntimeError("ASTToIR has no active semantic result.")
+            binding = self._semantic.enum_constructor_bindings.get(id(expression))
+            if binding is None:
+                raise ValueError("Missing semantic binding for enum constructor.")
+            declaration, variant = binding
+            payload_types = ",".join(item.name for item in variant.payload_types)
+            inputs = tuple(self._compile_value(item) for item in expression.arguments)
+            result = self._emit(
+                Opcode.ENUM_NEW_PAYLOAD,
+                inputs,
+                output_type=result_type,
+                operand=f"{declaration.name}|{variant.name}|{payload_types}",
+                span=expression.span,
+            )
+        elif isinstance(expression, MatchExpression):
+            result = self._compile_match_expression(expression)
         elif isinstance(expression, FunctionCallExpression):
             if self._semantic is None:
                 raise RuntimeError("ASTToIR has no active semantic result.")

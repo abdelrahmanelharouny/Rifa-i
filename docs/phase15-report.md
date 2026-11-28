@@ -65,4 +65,4 @@ The Phase 15 test module covers parser and semantic rules, nominal type executio
 
 ## Version
 
-Rifa'i package version: 0.16.0. Default bytecode format: v5.
+Rifa'i package version at Phase 15: 0.16.0. Default bytecode format at Phase 15: v5.

@@ -1,4 +1,4 @@
-# Rifa'i Language Specification (Version 3.1 — Phase 16)
+# Rifa'i Language Specification (Version 3.2 — Phase 17)
 
 Rifa'i (.rif) is a statically typed, block-structured language compiled into portable stack bytecode (.rbc) and executed by the Rifa'i VM. Phase 15 adds relative source modules, nominal records and enums, inferred local variables, an expanded standard library, and capability-controlled text file I/O.
 
@@ -6,7 +6,7 @@ Rifa'i (.rif) is a statically typed, block-structured language compiled into por
 
 Source files are UTF-8 .rif files. LF and CRLF line endings are supported. Coordinates are one-based. Whitespace is ignored; // starts a line comment. Identifiers match ASCII letters/underscores followed by ASCII letters, digits, or underscores, and are case-sensitive.
 
-Reserved keywords include import, struct, enum, fn, let, return, if, else, while, for, break, continue, print, true, false, int, float, bool, string, void, and, or, and not. Standard-library function names are reserved and cannot be declared as variables, parameters, functions, or nominal types.
+Reserved keywords include import, struct, enum, fn, let, return, if, else, while, for, break, continue, match, print, true, false, int, float, bool, string, void, and, or, and not. Standard-library function names are reserved and cannot be declared as variables, parameters, functions, or nominal types.
 
 Integer literals contain decimal digits; floats have digits on both sides of a decimal point. Double-quoted strings support escaped quote, backslash, newline, tab, and carriage return.
 
@@ -43,18 +43,42 @@ Construction is positional and must supply exactly one argument per field in dec
 
 Structs are reference values: assignment and parameter passing copy the reference, not the record. Updating a field through one alias is visible through other aliases. Struct equality is not defined; compare individual fields explicitly. Nested struct fields and primitive array fields are allowed.
 
-### Enums
+### Algebraic enums
 
-An enum declares a non-empty set of unit variants:
+An enum declares a non-empty set of uniquely named variants. Each variant may be a unit case or carry an ordered tuple of typed payload values:
 
 ~~~rif
 enum Status { Ready, Running, Failed }
+enum Result { Ok(int), Error(string), Pair(int, string), Empty }
 
 let current: Status = Status.Ready;
-print(current == Status.Running);
+let answer: Result = Result.Ok(42);
+let failure = Result.Error("offline");
 ~~~
 
-Variants are constructed using EnumName.Variant. Enum values are immutable and support equality/inequality only against values of the same enum type. Payload variants, pattern matching, and implicit string conversion are not part of this version.
+Unit variants use `EnumName.Variant`; payload variants use `EnumName.Variant(value, ...)`. Payload arity and each payload type are checked statically. Enum values are immutable tagged values whose payload tuple follows declaration order. Assignment and function calls preserve the enum value. Equality/inequality is supported only between values of the same enum type.
+
+### Exhaustive pattern matching
+
+The `match` expression selects an arm using the active enum variant. Patterns name the enum and variant, and may bind each payload position to a new arm-local variable. A final wildcard `_` covers any remaining cases:
+
+~~~rif
+fn describe(result: Result) -> string {
+    return match (result) {
+        Result.Ok(value) => "value=" + to_string(value),
+        Result.Error(message) => "error=" + message,
+        Result.Pair(value, label) => label + to_string(value),
+        Result.Empty => "empty",
+    };
+}
+
+let summary = match (Result.Ok(7)) {
+    Result.Ok(value) => to_string(value),
+    _ => "not successful",
+};
+~~~
+
+Every declared variant must appear exactly once unless a final wildcard arm is present. Duplicate arms, a wildcard before the final arm, mismatched enum names, unknown variants, incorrect payload binding counts, and arm result-type mismatches are compile-time errors. All arms must return the same non-void type. Payload bindings exist only inside their arm. Matching a non-enum value is rejected. Match expressions can be nested and used in declarations, returns, arguments, and other expressions.
 
 ## 3. Modules and imports
 
@@ -132,7 +156,7 @@ Arrays are homogeneous, one-dimensional reference values. Non-empty literals inf
 
 ## 8. Bytecode compatibility
 
-Bytecode v5 introduces STRUCT_NEW, FIELD_GET, FIELD_SET, and ENUM_NEW, and permits nominal type names in function signatures and debug-local metadata. The serializer and verifier continue to accept versions 1–4. Version 5 is required for nominal-type instructions and the new intrinsic CALL targets. Existing array operations remain supported in v5.
+Bytecode v5 introduced STRUCT_NEW, FIELD_GET, FIELD_SET, and unit ENUM_NEW. Bytecode v6 adds ENUM_NEW_PAYLOAD, ENUM_IS, and ENUM_GET for algebraic enum construction and match expressions. The serializer and verifier accept bytecode versions 1–6; versions 1–5 remain readable and executable. Version 6 is required only for enum payload and matching instructions. The compiler lowers matches to explicit IR control-flow blocks and verifies the result before execution.
 
 ## 9. Evaluation order and runtime limits
 

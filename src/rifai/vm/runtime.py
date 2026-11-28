@@ -28,10 +28,14 @@ class StructValue:
 
 @dataclass(frozen=True, slots=True)
 class EnumValue:
-    """Immutable unit enum variant."""
+    """Immutable enum variant with an ordered, typed payload."""
 
     type_name: str
     variant: str
+    payloads: tuple[RuntimeValue, ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "payloads", tuple(self.payloads))
 
 
 RuntimeValue = int | float | bool | str | ArrayValue | StructValue | EnumValue
@@ -86,5 +90,8 @@ def format_value(value: RuntimeValue) -> str:
         )
         return f"{value.type_name}{{{fields}}}"
     if isinstance(value, EnumValue):
+        if value.payloads:
+            payload = ", ".join(format_value(item) for item in value.payloads)
+            return f"{value.type_name}.{value.variant}({payload})"
         return f"{value.type_name}.{value.variant}"
     return str(value)

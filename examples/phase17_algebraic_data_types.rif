@@ -1,0 +1,28 @@
+// Phase 17: typed enum payloads and exhaustive matching.
+
+enum Result {
+    Ok(int),
+    Error(string),
+    Pair(int, string),
+    Empty,
+}
+
+fn describe(result: Result) -> string {
+    return match (result) {
+        Result.Ok(value) => "value=" + to_string(value),
+        Result.Error(message) => "error=" + message,
+        Result.Pair(number, label) => label + to_string(number),
+        Result.Empty => "empty",
+    };
+}
+
+print(describe(Result.Ok(42)));
+print(describe(Result.Error("offline")));
+print(describe(Result.Pair(7, "items")));
+print(describe(Result.Empty));
+
+let fallback: string = match (Result.Ok(9)) {
+    Result.Error(message) => message,
+    _ => "fallback",
+};
+print(fallback);

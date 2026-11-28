@@ -58,6 +58,10 @@ class Opcode(str, Enum):
     FIELD_GET = "FIELD_GET"
     FIELD_SET = "FIELD_SET"
     ENUM_NEW = "ENUM_NEW"
+    # Algebraic data types and enum pattern matching (bytecode v6).
+    ENUM_NEW_PAYLOAD = "ENUM_NEW_PAYLOAD"
+    ENUM_IS = "ENUM_IS"
+    ENUM_GET = "ENUM_GET"
 
     HALT = "HALT"
 
@@ -95,7 +99,7 @@ _INTEGER_OPERAND_OPCODES = frozenset(
     }
 )
 _STRING_OPERAND_OPCODES = frozenset(
-    {Opcode.LOAD_GLOBAL, Opcode.STORE_GLOBAL, Opcode.CALL, Opcode.STRUCT_NEW, Opcode.FIELD_GET, Opcode.FIELD_SET, Opcode.ENUM_NEW}
+    {Opcode.LOAD_GLOBAL, Opcode.STORE_GLOBAL, Opcode.CALL, Opcode.STRUCT_NEW, Opcode.FIELD_GET, Opcode.FIELD_SET, Opcode.ENUM_NEW, Opcode.ENUM_NEW_PAYLOAD, Opcode.ENUM_IS, Opcode.ENUM_GET}
 )
 
 
@@ -113,6 +117,7 @@ def stack_requirement(opcode: Opcode) -> int:
     if opcode in {
         Opcode.POP, Opcode.STORE_LOCAL, Opcode.STORE_GLOBAL, Opcode.PRINT,
         Opcode.JUMP_IF_FALSE, Opcode.NEGATE, Opcode.NOT, Opcode.FIELD_GET,
+        Opcode.ENUM_IS, Opcode.ENUM_GET,
     }:
         return 1
     if opcode in {
@@ -136,6 +141,7 @@ def stack_delta(opcode: Opcode) -> int:
     if opcode in {
         Opcode.CONSTANT, Opcode.LOAD_LOCAL, Opcode.LOAD_GLOBAL,
         Opcode.STRUCT_NEW, Opcode.ENUM_NEW,
+        Opcode.ENUM_NEW_PAYLOAD,
     }:
         return 1
     if opcode in {
@@ -150,7 +156,7 @@ def stack_delta(opcode: Opcode) -> int:
         Opcode.AND, Opcode.OR, Opcode.ARRAY_GET,
     }:
         return -1
-    if opcode in (Opcode.LENGTH, Opcode.ARRAY_POP, Opcode.FIELD_GET):
+    if opcode in (Opcode.LENGTH, Opcode.ARRAY_POP, Opcode.FIELD_GET, Opcode.ENUM_IS, Opcode.ENUM_GET):
         return 0
     if opcode is Opcode.ARRAY_SET:
         return -3

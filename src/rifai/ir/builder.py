@@ -107,6 +107,12 @@ def _operation_type(
         return instruction.operand.split("|", 1)[0] if isinstance(instruction.operand, str) else None
     if opcode is Opcode.ENUM_NEW:
         return instruction.operand.split("|", 1)[0] if isinstance(instruction.operand, str) else None
+    if opcode is Opcode.ENUM_NEW_PAYLOAD:
+        return instruction.operand.split("|", 1)[0] if isinstance(instruction.operand, str) else None
+    if opcode is Opcode.ENUM_IS:
+        return "bool"
+    if opcode is Opcode.ENUM_GET:
+        return instruction.operand.split("|", 3)[3] if isinstance(instruction.operand, str) else None
     if opcode is Opcode.FIELD_GET:
         return None
     if opcode in _ARRAY_TYPES:
@@ -133,6 +139,11 @@ def _stack_effect(
         return BUILTIN_ARITIES[instruction.operand], 1
     if opcode in _ARRAY_TYPES:
         return instruction.operand, 1
+    if opcode is Opcode.ENUM_NEW_PAYLOAD:
+        payload_text = instruction.operand.split("|", 2)[2]
+        return (len(payload_text.split(",")) if payload_text else 0), 1
+    if opcode in (Opcode.ENUM_IS, Opcode.ENUM_GET):
+        return 1, 1
     if opcode is Opcode.RETURN:
         return (1 if return_type != "void" else 0), 0
     if opcode is Opcode.HALT:

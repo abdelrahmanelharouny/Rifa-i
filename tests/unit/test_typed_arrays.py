@@ -170,10 +170,10 @@ def test_vm_rejects_runtime_array_type_mismatch_in_untrusted_bytecode() -> None:
         VirtualMachine().execute(module)
 
 
-def test_bytecode_v5_array_operations_round_trip_and_run() -> None:
+def test_current_bytecode_v6_array_operations_round_trip_and_run() -> None:
     compiled = Compiler().compile("let xs: int[] = [6, 7]; print(xs[1]);")
     assert compiled.is_success and compiled.module is not None
-    assert compiled.module.format_version == 5
+    assert compiled.module.format_version == 6
 
     encoded = BytecodeSerializer.to_bytes(compiled.module)
     restored = BytecodeSerializer.from_bytes(encoded)

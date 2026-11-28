@@ -35,7 +35,7 @@ The `debug_info` object contains:
 
 Debug metadata is optional for hand-authored bytecode, but compiler-produced source programs embed it by default. Embedded source text is limited to 8 Mi characters and the complete bytecode file is limited to 16 MiB. The verifier rejects unknown chunks, duplicate chunk entries, duplicate slots, invalid names/types, and slots outside their owning chunk. Metadata is informational and does not affect VM execution semantics.
 
-The serializer writes version 5 by default and retains v1-v4 read/write compatibility. Version 4 adds typed-array instructions; version 5 adds nominal structs/enums and intrinsic standard-library CALL targets. The reader and verifier accept versions 1 through 5. Constants are tagged as int, float, bool, or string; non-finite floats are forbidden. JSON keys must be unique.
+The serializer writes version 6 by default and retains v1-v5 read/write compatibility. Version 4 adds typed-array instructions; version 5 adds nominal structs, unit enums, and intrinsic standard-library CALL targets; version 6 adds typed enum payload construction and pattern matching. The reader and verifier accept versions 1 through 6. Constants are tagged as int, float, bool, or string; non-finite floats are forbidden. JSON keys must be unique.
 
 ## 2. Code Chunks and Frames
 
@@ -47,7 +47,7 @@ A code chunk contains:
 
 For a function chunk, arity must equal the length of its parameter signature and local_count must be at least arity. The first arity slots hold parameters in declaration order. Other locals use the remaining zero-based slots.
 
-Version 1 modules contain only the main chunk. Version 2–5 modules contain one main chunk and zero or more function chunks.
+Version 1 modules contain only the main chunk. Version 2–6 modules contain one main chunk and zero or more function chunks.
 
 ## 3. Instruction Encoding
 
@@ -77,7 +77,7 @@ Jump targets are absolute, zero-based instruction indices within the current chu
 | EQUAL / NOT_EQUAL | none | -1 | Strict same-type equality/inequality |
 | LESS / LESS_EQUAL | none | -1 | Numeric less-than comparisons |
 | GREATER / GREATER_EQUAL | none | -1 | Numeric greater-than comparisons |
-| AND / OR | none | -1 | Eager boolean conjunction/disjunction |
+| AND / OR | none | -1 | Boolean conjunction/disjunction; source-level operators lower to short-circuit branches |
 | PRINT | none | -1 | Consume and capture a printable value |
 | JUMP | instruction index | 0 | Unconditional branch |
 | JUMP_IF_FALSE | instruction index | -1 | Pop bool and branch when false |
@@ -143,3 +143,16 @@ Version 4 introduces homogeneous one-dimensional arrays. ARRAY_NEW_INT, ARRAY_NE
 ARRAY_GET consumes array and index, then pushes the element. ARRAY_SET consumes array, index, and value, and performs an in-place mutation. LENGTH accepts a string or array and pushes an integer length. ARRAY_PUSH consumes array and value and appends the value. ARRAY_POP consumes an array and pushes its last element.
 
 Array values are mutable references with a fixed primitive element type. The VM validates runtime element type, zero-based index bounds, empty-pop behavior, and a configurable item-count cap. Array construction counts are verifier-bounded. Formats 1 through 3 cannot use these instructions; collection opcodes in older formats are rejected by the verifier.
+
+
+### Version 6 Algebraic-Enum Instructions
+
+Version 6 adds:
+
+| Opcode | Operand | Stack effect | Behavior |
+|---|---|---:|---|
+| ENUM_NEW_PAYLOAD | Enum`|`Variant`|`type,type | 1 - payload count | Pop ordered payload values, validate each declared type, and push an immutable enum value |
+| ENUM_IS | Enum`|`Variant | 0 | Replace an enum value with whether its active variant matches |
+| ENUM_GET | Enum`|`Variant`|`index`|`type | 0 | Extract one payload position after validating enum type, active variant, index, and runtime payload type |
+
+The constructor schema is bounded and names a nominal enum, a variant identifier, and an ordered payload type list. Pattern tests and payload access operands are also validated before stack analysis. Runtime extraction checks the active case again so untrusted bytecode cannot read from a different variant. These new opcodes are rejected in versions 1–5.

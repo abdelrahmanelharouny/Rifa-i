@@ -35,6 +35,7 @@ class TokenType(str, Enum):
     IMPORT = "IMPORT"
     STRUCT = "STRUCT"
     ENUM = "ENUM"
+    MATCH = "MATCH"
 
     # Keywords — boolean literals
     TRUE = "TRUE"
@@ -78,6 +79,7 @@ class TokenType(str, Enum):
     COMMA = "COMMA"
     DOT = "DOT"
     ARROW = "ARROW"
+    FAT_ARROW = "FAT_ARROW"
 
 
 KEYWORDS: Final[dict[str, TokenType]] = {
@@ -96,6 +98,7 @@ KEYWORDS: Final[dict[str, TokenType]] = {
     "import": TokenType.IMPORT,
     "struct": TokenType.STRUCT,
     "enum": TokenType.ENUM,
+    "match": TokenType.MATCH,
     "int": TokenType.TYPE_INT,
     "float": TokenType.TYPE_FLOAT,
     "bool": TokenType.TYPE_BOOL,

@@ -442,6 +442,28 @@ class IRVerifier:
         elif opcode is Opcode.ENUM_NEW:
             type_name = operation.operand.split("|", 1)[0] if isinstance(operation.operand, str) else None
             check_output(type_name)
+        elif opcode is Opcode.ENUM_NEW_PAYLOAD:
+            parts = operation.operand.split("|", 2) if isinstance(operation.operand, str) else ()
+            check_output(parts[0] if parts else None)
+            payload_types = parts[2].split(",") if len(parts) == 3 and parts[2] else []
+            if len(payload_types) != len(input_types):
+                report(f"ENUM_NEW_PAYLOAD in block {block_id} has payload arity mismatch.")
+            else:
+                for expected, actual in zip(payload_types, input_types):
+                    if actual is not None and actual != expected:
+                        report(
+                            f"ENUM_NEW_PAYLOAD in block {block_id} expects payload type "
+                            f"{expected}, found {actual}."
+                        )
+        elif opcode is Opcode.ENUM_IS:
+            enum_name = operation.operand.split("|", 1)[0] if isinstance(operation.operand, str) else None
+            check_input(0, enum_name)
+            check_output("bool")
+        elif opcode is Opcode.ENUM_GET:
+            parts = operation.operand.split("|", 3) if isinstance(operation.operand, str) else ()
+            if len(parts) == 4:
+                check_input(0, parts[0])
+                check_output(parts[3])
         elif opcode in (Opcode.FIELD_GET, Opcode.FIELD_SET):
             if input_types and input_types[0] is not None and input_types[0] in {
                 "int", "float", "bool", "string"
@@ -505,6 +527,16 @@ class IRVerifier:
             if not isinstance(operation.operand, str) or not operation.operand:
                 report(f"{opcode.value} requires a string type operand.")
             return 0, 1
+        if opcode is Opcode.ENUM_NEW_PAYLOAD:
+            if not isinstance(operation.operand, str) or operation.operand.count("|") != 2:
+                report("ENUM_NEW_PAYLOAD requires Enum|Variant|payload-types.")
+                return None, 1
+            payload_text = operation.operand.split("|", 2)[2]
+            return (len(payload_text.split(",")) if payload_text else 0), 1
+        if opcode in (Opcode.ENUM_IS, Opcode.ENUM_GET):
+            if not isinstance(operation.operand, str) or not operation.operand:
+                report(f"{opcode.value} requires an enum pattern operand.")
+            return 1, 1
         if opcode is Opcode.FIELD_GET:
             if not isinstance(operation.operand, str) or not operation.operand:
                 report("FIELD_GET requires a field name.")

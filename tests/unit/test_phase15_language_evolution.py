@@ -70,7 +70,7 @@ print(updated.state == State.Ready);
 print(to_string(updated));
 """
     result = _compile(source)
-    assert result.module.format_version == FORMAT_VERSION == 5
+    assert result.module.format_version == FORMAT_VERSION == 6
     execution = VirtualMachine().execute(result.module)
     assert execution.output == (
         "Ada",
@@ -289,8 +289,10 @@ let point = Point(3, 4);
 print(point.x + point.y);
 """
     result = _compile(source)
-    restored = BytecodeSerializer.from_bytes(BytecodeSerializer.to_bytes(result.module))
-    assert restored == result.module
+    from dataclasses import replace
+    bytecode_v5 = replace(result.module, format_version=5)
+    restored = BytecodeSerializer.from_bytes(BytecodeSerializer.to_bytes(bytecode_v5))
+    assert restored == bytecode_v5
     assert VirtualMachine().execute(restored).output == ("7",)
 
     from rifai.bytecode import CodeChunk, Instruction, Opcode
@@ -319,7 +321,9 @@ print(user.age);
 print(user.status == Status.Ready);
 """
     compiled = _compile(source)
-    lifted = BytecodeToIR().build(compiled.module)
+    from dataclasses import replace
+    legacy_v5 = replace(compiled.module, format_version=5)
+    lifted = BytecodeToIR().build(legacy_v5)
     assert IRVerifier().verify(lifted).is_valid
 
     lowered = IRToBytecode().lower(lifted)

@@ -209,6 +209,10 @@ class Lexer:
             self._emit_token(single_type, start_offset, start_line, start_column)
             return
 
+        if ch == "=" and self._match(">"):
+            self._emit_token(TokenType.FAT_ARROW, start_offset, start_line, start_column)
+            return
+
         two_char = _TWO_CHAR_OPERATORS.get(ch)
         if two_char is not None:
             expected_second, paired_type, fallback_type = two_char

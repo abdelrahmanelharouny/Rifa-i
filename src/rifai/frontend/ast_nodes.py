@@ -106,12 +106,22 @@ class StructDeclaration(Statement):
 
 
 @dataclass(frozen=True, slots=True)
-class EnumDeclaration(Statement):
-    """Nominal enum with a finite set of unit variants."""
+class EnumVariant(ASTNode):
+    """One enum case and the ordered types carried by its payload."""
 
     name: str
     name_token: Token
-    variants: tuple[Token, ...]
+    payload_types: tuple[TypeAnnotation, ...]
+    span: SourceSpan
+
+
+@dataclass(frozen=True, slots=True)
+class EnumDeclaration(Statement):
+    """Nominal algebraic data type with unit or typed payload variants."""
+
+    name: str
+    name_token: Token
+    variants: tuple[EnumVariant, ...]
     span: SourceSpan
 
 
@@ -305,6 +315,41 @@ class FunctionCallExpression(Expression):
 
 
 @dataclass(frozen=True, slots=True)
+class EnumConstructorExpression(Expression):
+    """Construction of a payload-bearing enum case."""
+
+    enum_name: str
+    enum_token: Token
+    variant_name: str
+    variant_token: Token
+    arguments: tuple[Expression, ...]
+    span: SourceSpan
+
+
+@dataclass(frozen=True, slots=True)
+class MatchArm(ASTNode):
+    """A single exhaustive enum pattern and its result expression."""
+
+    enum_name: str | None
+    enum_token: Token | None
+    variant_name: str | None
+    variant_token: Token | None
+    bindings: tuple[Token, ...]
+    wildcard: bool
+    body: Expression
+    span: SourceSpan
+
+
+@dataclass(frozen=True, slots=True)
+class MatchExpression(Expression):
+    """Exhaustive expression-level match over a nominal enum value."""
+
+    subject: Expression
+    arms: tuple[MatchArm, ...]
+    span: SourceSpan
+
+
+@dataclass(frozen=True, slots=True)
 class ArrayLiteralExpression(Expression):
     """Homogeneous typed array literal."""
 
@@ -342,6 +387,9 @@ def _node_label(node: ASTNode) -> str:
         return f"StructField {node.name}: {node.type_annotation.name}"
     if isinstance(node, EnumDeclaration):
         return f"EnumDeclaration {node.name}"
+    if isinstance(node, EnumVariant):
+        payload = ", ".join(item.name for item in node.payload_types)
+        return f"EnumVariant {node.name}({payload})"
     if isinstance(node, FunctionDeclaration):
         params = ", ".join(f"{p.name}: {p.type_annotation.name}" for p in node.params)
         return f"FunctionDeclaration {node.name}({params}) -> {node.return_type.name}"
@@ -391,6 +439,13 @@ def _node_label(node: ASTNode) -> str:
         return "GroupingExpression"
     if isinstance(node, FunctionCallExpression):
         return f"FunctionCall({node.callee})"
+    if isinstance(node, EnumConstructorExpression):
+        return f"EnumConstructor {node.enum_name}.{node.variant_name}"
+    if isinstance(node, MatchExpression):
+        return f"MatchExpression[{len(node.arms)} arms]"
+    if isinstance(node, MatchArm):
+        pattern = "_" if node.wildcard else f"{node.enum_name}.{node.variant_name}"
+        return f"MatchArm {pattern}"
     return type(node).__name__
 
 
@@ -399,6 +454,8 @@ def _node_children(node: ASTNode) -> list[tuple[str | None, ASTNode]]:
         return [(None, decl) for decl in node.declarations]
     if isinstance(node, StructDeclaration):
         return [(None, item) for item in node.fields]
+    if isinstance(node, EnumDeclaration):
+        return [(None, item) for item in node.variants]
     if isinstance(node, MemberAssignmentStatement):
         return [("object", node.object), ("value", node.value)]
     if isinstance(node, MemberExpression):
@@ -453,6 +510,12 @@ def _node_children(node: ASTNode) -> list[tuple[str | None, ASTNode]]:
         return [(None, node.expression)]
     if isinstance(node, FunctionCallExpression):
         return [(f"arg[{i}]", arg) for i, arg in enumerate(node.arguments)]
+    if isinstance(node, EnumConstructorExpression):
+        return [(f"payload[{i}]", arg) for i, arg in enumerate(node.arguments)]
+    if isinstance(node, MatchExpression):
+        return [("subject", node.subject), *[(None, arm) for arm in node.arms]]
+    if isinstance(node, MatchArm):
+        return [("body", node.body)]
     return []
 
 

@@ -321,7 +321,7 @@ def _node_label(node: ASTNode) -> str:
     if isinstance(node, Parameter):
         return f"Parameter {node.name}: {node.type_annotation.name}"
     if isinstance(node, VariableDeclaration):
-        return f"VariableDeclaration {node.name}: {node.type_annotation.name if node.type_annotation else "inferred"}"
+        return f"VariableDeclaration {node.name}: {node.type_annotation.name if node.type_annotation else 'inferred'}"
     if isinstance(node, AssignmentStatement):
         return f"AssignmentStatement {node.name} ="
     if isinstance(node, IndexAssignmentStatement):

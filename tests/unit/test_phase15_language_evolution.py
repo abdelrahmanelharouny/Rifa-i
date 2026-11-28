@@ -148,6 +148,19 @@ print(to_string(true));
     )
 
 
+def test_optimized_compilation_supports_intrinsic_standard_library_calls():
+    source = """let value = abs(-12);
+let magnitude = sqrt(81);
+let found = contains("Rifa'i", "fa");
+print(value);
+print(magnitude);
+print(found);
+"""
+    result = Compiler().compile(source)
+    assert result.is_success, result.diagnostics
+    assert VirtualMachine().execute(result.module).output == ("12", "9.0", "true")
+
+
 def test_standard_library_rejects_wrong_static_types_and_arity():
     result = Compiler(optimize=False).compile(
         'print(abs("8")); print(substring("abc", 1)); print(min(1, 2.0));'

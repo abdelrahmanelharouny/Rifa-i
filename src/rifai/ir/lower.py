@@ -22,10 +22,7 @@ class IRToBytecode:
                 "Cannot lower invalid IR: " + "; ".join(ir_validation.diagnostics[:3])
             )
 
-        materialize = (
-            module.requires_materialized_values
-            or module.format_version >= NOMINAL_TYPES_FORMAT_VERSION
-        )
+        materialize = module.requires_materialized_values
         main = self._lower_function_selected(module.main, materialize)
         functions = tuple(
             BytecodeFunction(

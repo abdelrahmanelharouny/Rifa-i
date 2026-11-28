@@ -72,7 +72,7 @@ fn equal<T: Equatable>(left: T, right: T) -> bool {
 }
 
 let inferred_box = Box(42);
-let explicit_box: Box<string> = Box<string>("rifai");
+let typed_box: Box<string> = Box<string>("rifai");
 let nested_box: Box<string> = explicit_box("nested");
 let nested_option: Option<int> = explicit_option(12);
 let nested_identity: int = explicit_identity(11);
@@ -85,7 +85,7 @@ let some: Option<int> = Option<int>.Some(9);
 let none: Option<string> = Option<string>.None;
 
 print(to_string(inferred_box.value));
-print(explicit_box.value);
+print(typed_box.value);
 print(nested_box.value);
 print(describe(nested_option));
 print(to_string(nested_identity));

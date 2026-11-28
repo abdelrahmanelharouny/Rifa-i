@@ -695,7 +695,7 @@ class ASTToIR:
                 result = self._emit(
                     Opcode.ENUM_NEW,
                     output_type=result_type,
-                    operand=enum_variant[0] + "." + enum_variant[1],
+                    operand=(enum_variant[0] + "|" + ",".join(item.lexeme for item in self._semantic.enum_declarations[enum_variant[0]].variants) + "|" + enum_variant[1]),
                     span=expression.span,
                 )
             else:

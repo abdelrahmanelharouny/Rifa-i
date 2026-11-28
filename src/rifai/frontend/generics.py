@@ -252,7 +252,7 @@ class GenericSpecializer:
         if constraint == "Addable":
             return type_name in {"int", "float", "string"}
         if constraint in {"Comparable", "Ordered"}:
-            return type_name in {"int", "float", "string"}
+            return type_name in {"int", "float"}
         if constraint == "Equatable":
             return type_name in {"int", "float", "bool", "string"} or is_enum
         if constraint in {"Display", "Printable"}:

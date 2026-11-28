@@ -679,6 +679,10 @@ class GenericSpecializer:
             args = tuple(self._rewrite_expression(a, env, substitutions) for a in expr.arguments)
             rewritten = replace(expr, arguments=args) if args != expr.arguments else expr
 
+            explicit_type_arguments = tuple(
+                self._specialize_annotation(annotation, substitutions)
+                for annotation in expr.type_arguments
+            )
             struct_template = self._generic_structs.get(expr.callee)
             if struct_template is not None:
                 patterns = tuple(item.type_annotation.name for item in struct_template.fields)
@@ -689,7 +693,7 @@ class GenericSpecializer:
                     patterns,
                     args,
                     env,
-                    expr.type_arguments,
+                    explicit_type_arguments,
                     expr.span,
                 )
                 if concrete is None:
@@ -705,7 +709,7 @@ class GenericSpecializer:
                 )
             template = self._generic_functions.get(expr.callee)
             if template is not None:
-                name = self._specialize_call(template, args, env, expr.type_arguments, expr.span)
+                name = self._specialize_call(template, args, env, explicit_type_arguments, expr.span)
                 if name is None:
                     return rewritten
                 return replace(
@@ -763,7 +767,7 @@ class GenericSpecializer:
                     patterns,
                     args,
                     env,
-                    expr.type_arguments,
+                    explicit_type_arguments,
                     expr.span,
                 )
                 if concrete is None:

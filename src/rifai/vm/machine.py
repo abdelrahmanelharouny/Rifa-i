@@ -421,7 +421,10 @@ class VirtualMachine:
                     raise fault(f"Field '{instruction.operand}' expects '{expected}'.", instruction)
                 record.fields[instruction.operand] = value
             elif opcode is Opcode.ENUM_NEW:
-                enum_name, variant = instruction.operand.split(".", 1)
+                enum_name, variants_text, variant = instruction.operand.split("|", 2)
+                variants = variants_text.split(",")
+                if variant not in variants:
+                    raise fault(f"Enum '{enum_name}' has no variant '{variant}'.", instruction)
                 push(EnumValue(enum_name, variant), instruction)
             elif opcode is Opcode.ARRAY_GET:
                 index = pop(instruction)

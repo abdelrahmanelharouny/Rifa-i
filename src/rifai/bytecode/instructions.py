@@ -111,86 +111,50 @@ def expected_operand_kind(opcode: Opcode) -> str:
 def stack_requirement(opcode: Opcode) -> int:
     """Return the minimum stack depth required before executing an opcode."""
     if opcode in {
-        Opcode.POP,
-        Opcode.STORE_LOCAL,
-        Opcode.STORE_GLOBAL,
-        Opcode.PRINT,
-        Opcode.JUMP_IF_FALSE,
-        Opcode.NEGATE,
-        Opcode.NOT,
-        Opcode.FIELD_GET,
+        Opcode.POP, Opcode.STORE_LOCAL, Opcode.STORE_GLOBAL, Opcode.PRINT,
+        Opcode.JUMP_IF_FALSE, Opcode.NEGATE, Opcode.NOT, Opcode.FIELD_GET,
     }:
         return 1
     if opcode in {
-        Opcode.ADD,
-        Opcode.SUBTRACT,
-        Opcode.MULTIPLY,
-        Opcode.DIVIDE,
-        Opcode.MODULO,
-        Opcode.EQUAL,
-        Opcode.NOT_EQUAL,
-        Opcode.LESS,
-        Opcode.LESS_EQUAL,
-        Opcode.GREATER,
-        Opcode.GREATER_EQUAL,
-        Opcode.AND,
-        Opcode.OR,
-        Opcode.ARRAY_SET,
-        Opcode.ARRAY_PUSH,
-        Opcode.FIELD_SET,
+        Opcode.ADD, Opcode.SUBTRACT, Opcode.MULTIPLY, Opcode.DIVIDE,
+        Opcode.MODULO, Opcode.EQUAL, Opcode.NOT_EQUAL, Opcode.LESS,
+        Opcode.LESS_EQUAL, Opcode.GREATER, Opcode.GREATER_EQUAL,
+        Opcode.AND, Opcode.OR, Opcode.ARRAY_PUSH, Opcode.FIELD_SET,
     }:
-        return 3 if opcode is Opcode.ARRAY_SET else 2
-    if opcode is Opcode.ARRAY_GET:
         return 2
-    if opcode in {Opcode.LENGTH, Opcode.ARRAY_POP}:
+    if opcode is Opcode.ARRAY_SET:
+        return 3
+    if opcode in (Opcode.ARRAY_GET,):
+        return 2
+    if opcode in (Opcode.LENGTH, Opcode.ARRAY_POP, Opcode.DUP):
         return 1
-    if opcode is Opcode.DUP:
-        return 1
-    if opcode in (Opcode.STRUCT_NEW, Opcode.ENUM_NEW):
-        return 1
-    if opcode is Opcode.FIELD_SET:
-        return -2
     return 0
 
 
 def stack_delta(opcode: Opcode) -> int:
     """Return the net stack-height change caused by a non-call opcode."""
     if opcode in {
-        Opcode.CONSTANT,
-        Opcode.LOAD_LOCAL,
-        Opcode.LOAD_GLOBAL,
+        Opcode.CONSTANT, Opcode.LOAD_LOCAL, Opcode.LOAD_GLOBAL,
+        Opcode.STRUCT_NEW, Opcode.ENUM_NEW,
     }:
         return 1
     if opcode in {
-        Opcode.POP,
-        Opcode.STORE_LOCAL,
-        Opcode.STORE_GLOBAL,
-        Opcode.PRINT,
-        Opcode.JUMP_IF_FALSE,
+        Opcode.POP, Opcode.STORE_LOCAL, Opcode.STORE_GLOBAL,
+        Opcode.PRINT, Opcode.JUMP_IF_FALSE,
     }:
         return -1
     if opcode in {
-        Opcode.ADD,
-        Opcode.SUBTRACT,
-        Opcode.MULTIPLY,
-        Opcode.DIVIDE,
-        Opcode.MODULO,
-        Opcode.EQUAL,
-        Opcode.NOT_EQUAL,
-        Opcode.LESS,
-        Opcode.LESS_EQUAL,
-        Opcode.GREATER,
-        Opcode.GREATER_EQUAL,
-        Opcode.AND,
-        Opcode.OR,
-        Opcode.ARRAY_GET,
+        Opcode.ADD, Opcode.SUBTRACT, Opcode.MULTIPLY, Opcode.DIVIDE,
+        Opcode.MODULO, Opcode.EQUAL, Opcode.NOT_EQUAL, Opcode.LESS,
+        Opcode.LESS_EQUAL, Opcode.GREATER, Opcode.GREATER_EQUAL,
+        Opcode.AND, Opcode.OR, Opcode.ARRAY_GET,
     }:
         return -1
-    if opcode in {Opcode.LENGTH, Opcode.ARRAY_POP}:
+    if opcode in (Opcode.LENGTH, Opcode.ARRAY_POP, Opcode.FIELD_GET):
         return 0
     if opcode is Opcode.ARRAY_SET:
         return -3
-    if opcode is Opcode.ARRAY_PUSH:
+    if opcode in (Opcode.ARRAY_PUSH, Opcode.FIELD_SET):
         return -2
     if opcode is Opcode.DUP:
         return 1

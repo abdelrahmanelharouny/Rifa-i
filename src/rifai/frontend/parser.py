@@ -19,6 +19,12 @@ from rifai.frontend.ast_nodes import (
     GroupingExpression,
     IndexAssignmentStatement,
     IndexExpression,
+    MemberExpression,
+    MemberAssignmentStatement,
+    ImportDeclaration,
+    StructDeclaration,
+    StructField,
+    EnumDeclaration,
     IfStatement,
     LiteralExpression,
     Parameter,
@@ -172,6 +178,12 @@ class Parser:
     def _parse_declaration(self) -> Statement | None:
         saved_index = self._index
         try:
+            if self._check(TokenType.IMPORT):
+                return self._parse_import_declaration()
+            if self._check(TokenType.STRUCT):
+                return self._parse_struct_declaration()
+            if self._check(TokenType.ENUM):
+                return self._parse_enum_declaration()
             if self._check(TokenType.FN):
                 return self._parse_function_declaration()
             return self._parse_statement()
@@ -181,6 +193,64 @@ class Parser:
             if self._index == saved_index:
                 self._advance()
             return None
+
+    def _parse_import_declaration(self) -> ImportDeclaration:
+        keyword = self._consume(TokenType.IMPORT, "Expected 'import'.")
+        path = self._consume(TokenType.STRING, "Expected a quoted relative module path.")
+        semi = self._consume(TokenType.SEMICOLON, "Expected ';' after import.")
+        return ImportDeclaration(
+            path=str(path.literal),
+            path_token=path,
+            span=SourceSpan.between(keyword, semi),
+        )
+
+    def _parse_struct_declaration(self) -> StructDeclaration:
+        keyword = self._consume(TokenType.STRUCT, "Expected 'struct'.")
+        name = self._consume(TokenType.IDENTIFIER, "Expected struct name.")
+        self._consume(TokenType.LEFT_BRACE, "Expected '{' after struct name.")
+        fields: list[StructField] = []
+        while not self._check(TokenType.RIGHT_BRACE) and not self._is_at_end():
+            field_name = self._consume(TokenType.IDENTIFIER, "Expected struct field name.")
+            self._consume(TokenType.COLON, "Expected ':' after struct field name.")
+            field_type = self._parse_type_annotation("Expected struct field type.")
+            end: Token | SourceSpan = field_type.span
+            if self._match(TokenType.COMMA, TokenType.SEMICOLON) is not None:
+                end = self._previous()
+            elif not self._check(TokenType.RIGHT_BRACE):
+                raise self._error(self._peek(), "Expected ',' or ';' after struct field.")
+            fields.append(StructField(
+                name=field_name.lexeme,
+                name_token=field_name,
+                type_annotation=field_type,
+                span=SourceSpan.between(field_name, end),
+            ))
+        close = self._consume(TokenType.RIGHT_BRACE, "Expected '}' after struct fields.")
+        return StructDeclaration(
+            name=name.lexeme,
+            name_token=name,
+            fields=tuple(fields),
+            span=SourceSpan.between(keyword, close),
+        )
+
+    def _parse_enum_declaration(self) -> EnumDeclaration:
+        keyword = self._consume(TokenType.ENUM, "Expected 'enum'.")
+        name = self._consume(TokenType.IDENTIFIER, "Expected enum name.")
+        self._consume(TokenType.LEFT_BRACE, "Expected '{' after enum name.")
+        variants: list[Token] = []
+        if not self._check(TokenType.RIGHT_BRACE):
+            while True:
+                variants.append(self._consume(TokenType.IDENTIFIER, "Expected enum variant name."))
+                if self._match(TokenType.COMMA) is None:
+                    break
+                if self._check(TokenType.RIGHT_BRACE):
+                    break
+        close = self._consume(TokenType.RIGHT_BRACE, "Expected '}' after enum variants.")
+        return EnumDeclaration(
+            name=name.lexeme,
+            name_token=name,
+            variants=tuple(variants),
+            span=SourceSpan.between(keyword, close),
+        )
 
     def _parse_function_declaration(self) -> FunctionDeclaration:
         fn_token = self._consume(TokenType.FN, "Expected 'fn' keyword.")
@@ -224,11 +294,19 @@ class Parser:
 
     def _parse_type_annotation(self, message: str) -> TypeAnnotation:
         token = self._peek()
-        if token.token_type in _TYPE_TOKENS:
+        if token.token_type in _TYPE_TOKENS or token.token_type is TokenType.IDENTIFIER:
             self._advance()
             end: Token | SourceSpan = token
             name = token.lexeme
-            if self._match(TokenType.LEFT_BRACKET) is not None:
+            if (
+                token.token_type in {
+                    TokenType.TYPE_INT,
+                    TokenType.TYPE_FLOAT,
+                    TokenType.TYPE_BOOL,
+                    TokenType.TYPE_STRING,
+                }
+                and self._match(TokenType.LEFT_BRACKET) is not None
+            ):
                 close = self._consume(
                     TokenType.RIGHT_BRACKET,
                     "Expected ']' after array type brackets.",
@@ -264,19 +342,17 @@ class Parser:
             and self._peek(1).token_type is TokenType.ASSIGN
         ):
             return self._parse_assignment_statement()
-        if (
-            self._check(TokenType.IDENTIFIER)
-            and self._peek(1).token_type is TokenType.LEFT_BRACKET
-        ):
+        if self._check(TokenType.IDENTIFIER):
             return self._parse_index_or_expression_statement()
         return self._parse_expression_statement()
 
     def _parse_variable_declaration(self) -> VariableDeclaration:
         let_token = self._consume(TokenType.LET, "Expected 'let'.")
         name_token = self._consume(TokenType.IDENTIFIER, "Expected variable name.")
-        self._consume(TokenType.COLON, "Expected ':' after variable name.")
-        type_ann = self._parse_type_annotation("Expected variable type annotation.")
-        self._consume(TokenType.ASSIGN, "Expected '=' after variable type.")
+        type_ann = None
+        if self._match(TokenType.COLON) is not None:
+            type_ann = self._parse_type_annotation("Expected variable type annotation.")
+        self._consume(TokenType.ASSIGN, "Expected '=' after variable name or type.")
         initializer = self._parse_expression()
         semi = self._consume(
             TokenType.SEMICOLON, "Expected ';' after variable declaration."
@@ -304,16 +380,24 @@ class Parser:
     def _parse_index_or_expression_statement(self) -> Statement:
         expression = self._parse_expression()
         if self._match(TokenType.ASSIGN) is not None:
-            if not isinstance(expression, IndexExpression):
-                raise self._error(self._previous(), "Only array elements can be assigned through an index.")
             value = self._parse_expression()
-            semi = self._consume(TokenType.SEMICOLON, "Expected ';' after indexed assignment.")
-            return IndexAssignmentStatement(
-                array=expression.array,
-                index=expression.index,
-                value=value,
-                span=SourceSpan.between(expression.span, semi),
-            )
+            semi = self._consume(TokenType.SEMICOLON, "Expected ';' after assignment.")
+            if isinstance(expression, IndexExpression):
+                return IndexAssignmentStatement(
+                    array=expression.array,
+                    index=expression.index,
+                    value=value,
+                    span=SourceSpan.between(expression.span, semi),
+                )
+            if isinstance(expression, MemberExpression):
+                return MemberAssignmentStatement(
+                    object=expression.object,
+                    name=expression.name,
+                    name_token=expression.name_token,
+                    value=value,
+                    span=SourceSpan.between(expression.span, semi),
+                )
+            raise self._error(self._previous(), "Only array elements and struct fields can be assigned through postfix access.")
         semi = self._consume(TokenType.SEMICOLON, "Expected ';' after expression.")
         return ExpressionStatement(
             expression=expression,
@@ -570,16 +654,28 @@ class Parser:
                 raise self._error(current, "Unexpected end of file; expected expression.")
             raise self._error(current, f"Expected expression, got '{current.lexeme}'.")
 
-        while self._match(TokenType.LEFT_BRACKET) is not None:
-            index = self._parse_expression()
-            close_bracket = self._consume(
-                TokenType.RIGHT_BRACKET, "Expected ']' after array index."
-            )
-            expression = IndexExpression(
-                array=expression,
-                index=index,
-                span=SourceSpan.between(expression.span, close_bracket),
-            )
+        while True:
+            if self._match(TokenType.LEFT_BRACKET) is not None:
+                index = self._parse_expression()
+                close_bracket = self._consume(
+                    TokenType.RIGHT_BRACKET, "Expected ']' after array index."
+                )
+                expression = IndexExpression(
+                    array=expression,
+                    index=index,
+                    span=SourceSpan.between(expression.span, close_bracket),
+                )
+                continue
+            if self._match(TokenType.DOT) is not None:
+                member = self._consume(TokenType.IDENTIFIER, "Expected member name after '.'.")
+                expression = MemberExpression(
+                    object=expression,
+                    name=member.lexeme,
+                    name_token=member,
+                    span=SourceSpan.between(expression.span, member),
+                )
+                continue
+            break
         return expression
 
     def _finish_function_call(self, callee: Token) -> FunctionCallExpression:

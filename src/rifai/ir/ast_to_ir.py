@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from rifai.bytecode.instructions import Opcode, SourceLocation
-from rifai.bytecode.module import BytecodeDebugInfo, BytecodeDebugLocal
+from rifai.bytecode.module import BytecodeDebugInfo, BytecodeDebugLocal, FORMAT_VERSION
 from rifai.frontend.ast_nodes import (
     ASTNode,
     ArrayLiteralExpression,
@@ -25,6 +25,8 @@ from rifai.frontend.ast_nodes import (
     GroupingExpression,
     IndexAssignmentStatement,
     IndexExpression,
+    MemberAssignmentStatement,
+    MemberExpression,
     IfStatement,
     LiteralExpression,
     PrintStatement,
@@ -40,6 +42,7 @@ from rifai.frontend.ast_nodes import (
 from rifai.frontend.semantic import SemanticResult
 from rifai.frontend.symbol_table import FunctionSymbol, VariableSymbol
 from rifai.frontend.tokens import TokenType
+from rifai.frontend.types import type_name
 from rifai.ir.model import (
     IRBlock,
     IRBranch,
@@ -100,6 +103,11 @@ def _walk(root: ASTNode):
         yield from _walk(root.array)
         yield from _walk(root.index)
         yield from _walk(root.value)
+    elif isinstance(root, MemberAssignmentStatement):
+        yield from _walk(root.object)
+        yield from _walk(root.value)
+    elif isinstance(root, MemberExpression):
+        yield from _walk(root.object)
     elif isinstance(root, ArrayLiteralExpression):
         for element in root.elements:
             yield from _walk(element)
@@ -201,8 +209,9 @@ class ASTToIR:
             main=main,
             functions=tuple(functions),
             source_name=source_name,
-            format_version=4,
+            format_version=FORMAT_VERSION,
             debug_info=debug_info,
+            requires_materialized_values=True,
         )
 
     def _reset_function(self, name: str, roots, parameters, semantic: SemanticResult) -> None:
@@ -443,7 +452,7 @@ class ASTToIR:
             raise ValueError(
                 f"Missing semantic type for {type(expression).__name__}."
             )
-        return result.value
+        return type_name(result)
 
     def _variable_symbol(self, node: ASTNode) -> VariableSymbol:
         if self._semantic is None:
@@ -459,7 +468,7 @@ class ASTToIR:
         if symbol.is_global:
             result = self._emit(
                 Opcode.LOAD_GLOBAL,
-                output_type=symbol.rifai_type.value,
+                output_type=type_name(symbol.rifai_type),
                 operand=symbol.name,
                 span=span,
             )
@@ -469,7 +478,7 @@ class ASTToIR:
                 raise ValueError(f"No local slot allocated for '{symbol.name}'.")
             result = self._emit(
                 Opcode.LOAD_LOCAL,
-                output_type=symbol.rifai_type.value,
+                output_type=type_name(symbol.rifai_type),
                 operand=slot,
                 span=span,
             )
@@ -511,6 +520,15 @@ class ASTToIR:
             self._emit(
                 Opcode.ARRAY_SET,
                 (array, index, value),
+                span=statement.span,
+            )
+        elif isinstance(statement, MemberAssignmentStatement):
+            object_value = self._compile_value(statement.object)
+            value = self._compile_value(statement.value)
+            self._emit(
+                Opcode.FIELD_SET,
+                (object_value, value),
+                operand=statement.name,
                 span=statement.span,
             )
         elif isinstance(statement, BlockStatement):
@@ -669,6 +687,26 @@ class ASTToIR:
                 output_type=result_type,
                 span=expression.span,
             )
+        elif isinstance(expression, MemberExpression):
+            if self._semantic is None:
+                raise RuntimeError("ASTToIR has no active semantic result.")
+            enum_variant = self._semantic.enum_variant_bindings.get(id(expression))
+            if enum_variant is not None:
+                result = self._emit(
+                    Opcode.ENUM_NEW,
+                    output_type=result_type,
+                    operand=(enum_variant[0] + "|" + ",".join(item.lexeme for item in self._semantic.enum_declarations[enum_variant[0]].variants) + "|" + enum_variant[1]),
+                    span=expression.span,
+                )
+            else:
+                object_value = self._compile_value(expression.object)
+                result = self._emit(
+                    Opcode.FIELD_GET,
+                    (object_value,),
+                    output_type=result_type,
+                    operand=expression.name,
+                    span=expression.span,
+                )
         elif isinstance(expression, UnaryExpression):
             operand = self._compile_value(expression.operand)
             opcode = (
@@ -697,45 +735,73 @@ class ASTToIR:
                 span=expression.span,
             )
         elif isinstance(expression, FunctionCallExpression):
-            arguments = tuple(
-                self._compile_value(item)
-                for item in expression.arguments
-            )
-            if expression.callee == "len":
+            if self._semantic is None:
+                raise RuntimeError("ASTToIR has no active semantic result.")
+            struct_declaration = self._semantic.constructor_bindings.get(id(expression))
+            if struct_declaration is not None:
                 result = self._emit(
-                    Opcode.LENGTH,
-                    arguments,
+                    Opcode.STRUCT_NEW,
                     output_type=result_type,
+                    operand=(
+                        struct_declaration.name
+                        + "|"
+                        + ",".join(
+                            field.name + ":" + field.type_annotation.name
+                            for field in struct_declaration.fields
+                        )
+                    ),
                     span=expression.span,
                 )
-            elif expression.callee == "push":
-                result = self._emit(
-                    Opcode.ARRAY_PUSH,
-                    arguments,
-                    span=expression.span,
-                )
-            elif expression.callee == "pop":
-                result = self._emit(
-                    Opcode.ARRAY_POP,
-                    arguments,
-                    output_type=result_type,
-                    span=expression.span,
-                )
-            else:
-                if self._semantic is None:
-                    raise RuntimeError("ASTToIR has no active semantic result.")
-                symbol: FunctionSymbol | None = self._semantic.function_for(expression)
-                if symbol is None:
-                    raise ValueError(
-                        f"Missing semantic function binding for '{expression.callee}'."
+                if result is None:
+                    raise ValueError("Struct construction did not produce a value.")
+                for field, argument in zip(struct_declaration.fields, expression.arguments):
+                    duplicate = self._emit(
+                        Opcode.DUP,
+                        (result,),
+                        output_type=result_type,
+                        span=expression.span,
                     )
-                result = self._emit(
-                    Opcode.CALL,
-                    arguments,
-                    output_type=None if symbol.return_type.value == "void" else result_type,
-                    operand=symbol.name,
-                    span=expression.span,
+                    value = self._compile_value(argument)
+                    self._emit(
+                        Opcode.FIELD_SET,
+                        (duplicate, value),
+                        operand=field.name,
+                        span=argument.span,
+                    )
+            else:
+                arguments = tuple(
+                    self._compile_value(item)
+                    for item in expression.arguments
                 )
+                if expression.callee == "len":
+                    result = self._emit(
+                        Opcode.LENGTH,
+                        arguments,
+                        output_type=result_type,
+                        span=expression.span,
+                    )
+                elif expression.callee == "push":
+                    result = self._emit(
+                        Opcode.ARRAY_PUSH,
+                        arguments,
+                        span=expression.span,
+                    )
+                elif expression.callee == "pop":
+                    result = self._emit(
+                        Opcode.ARRAY_POP,
+                        arguments,
+                        output_type=result_type,
+                        span=expression.span,
+                    )
+                else:
+                    symbol: FunctionSymbol | None = self._semantic.function_for(expression)
+                    result = self._emit(
+                        Opcode.CALL,
+                        arguments,
+                        output_type=None if result_type == "void" else result_type,
+                        operand=symbol.name if symbol is not None else expression.callee,
+                        span=expression.span,
+                    )
         else:
             raise ValueError(
                 f"Unsupported expression node '{type(expression).__name__}'."

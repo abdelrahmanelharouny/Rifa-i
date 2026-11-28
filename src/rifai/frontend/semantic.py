@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Final
 
 from rifai.errors.diagnostics import Diagnostic, DiagnosticPhase
+from rifai.stdlib import BUILTIN_FUNCTIONS
 from rifai.frontend.ast_nodes import (
     ArrayLiteralExpression,
     AssignmentStatement,
@@ -18,6 +19,12 @@ from rifai.frontend.ast_nodes import (
     GroupingExpression,
     IndexAssignmentStatement,
     IndexExpression,
+    MemberAssignmentStatement,
+    MemberExpression,
+    ImportDeclaration,
+    StructDeclaration,
+    StructField,
+    EnumDeclaration,
     IfStatement,
     LiteralExpression,
     PrintStatement,
@@ -34,6 +41,8 @@ from rifai.frontend.symbol_table import FunctionSymbol, SymbolTable, VariableSym
 from rifai.frontend.tokens import TokenType
 from rifai.frontend.types import (
     RifaiType,
+    StaticType,
+    UserDefinedType,
     array_element_type,
     array_type_for,
     is_array_type,
@@ -52,7 +61,7 @@ _RELATIONAL_OPS: Final[frozenset[TokenType]] = frozenset(
     }
 )
 
-_BUILTIN_FUNCTIONS: Final[frozenset[str]] = frozenset({"len", "push", "pop"})
+_BUILTIN_FUNCTIONS: Final[frozenset[str]] = frozenset(BUILTIN_FUNCTIONS)
 
 _EQUALITY_OPS: Final[frozenset[TokenType]] = frozenset(
     {
@@ -67,17 +76,22 @@ class SemanticResult:
     """Validated semantic model produced by the Rifa'i SemanticAnalyzer."""
 
     diagnostics: tuple[Diagnostic, ...]
-    expression_types: dict[int, RifaiType]
+    expression_types: dict[int, StaticType]
     variable_bindings: dict[int, VariableSymbol]
     function_bindings: dict[int, FunctionSymbol]
     global_symbols: dict[str, VariableSymbol | FunctionSymbol]
+    struct_declarations: dict[str, StructDeclaration]
+    enum_declarations: dict[str, EnumDeclaration]
+    constructor_bindings: dict[int, StructDeclaration]
+    member_bindings: dict[int, StructField]
+    enum_variant_bindings: dict[int, tuple[str, str]]
 
     @property
     def is_valid(self) -> bool:
         """Return True when semantic analysis completed with zero diagnostics."""
         return len(self.diagnostics) == 0
 
-    def type_of(self, expression: Expression) -> RifaiType | None:
+    def type_of(self, expression: Expression) -> StaticType | None:
         """Return the inferred RifaiType for an AST expression node."""
         return self.expression_types.get(id(expression))
 
@@ -101,10 +115,16 @@ class SemanticAnalyzer:
     def __init__(self) -> None:
         self._symbol_table = SymbolTable()
         self._diagnostics: list[Diagnostic] = []
-        self._expression_types: dict[int, RifaiType] = {}
+        self._expression_types: dict[int, StaticType] = {}
         self._variable_bindings: dict[int, VariableSymbol] = {}
         self._function_bindings: dict[int, FunctionSymbol] = {}
         self._current_function: FunctionSymbol | None = None
+        self._struct_declarations: dict[str, StructDeclaration] = {}
+        self._enum_declarations: dict[str, EnumDeclaration] = {}
+        self._nominal_types: dict[str, UserDefinedType] = {}
+        self._constructor_bindings: dict[int, StructDeclaration] = {}
+        self._member_bindings: dict[int, StructField] = {}
+        self._enum_variant_bindings: dict[int, tuple[str, str]] = {}
 
     def analyze(self, program: Program) -> SemanticResult:
         """Analyze a parsed Rifa'i Program AST and return a SemanticResult."""
@@ -114,12 +134,27 @@ class SemanticAnalyzer:
         self._variable_bindings = {}
         self._function_bindings = {}
         self._current_function = None
+        self._struct_declarations = {}
+        self._enum_declarations = {}
+        self._nominal_types = {}
+        self._constructor_bindings = {}
+        self._member_bindings = {}
+        self._enum_variant_bindings = {}
 
+        self._collect_type_declarations(program)
+        for struct in self._struct_declarations.values():
+            for field in struct.fields:
+                field_type = self._resolve_type(field.type_annotation.name)
+                if field_type is None or field_type is RifaiType.VOID:
+                    self._error(field.type_annotation.span,
+                                f"Unknown or invalid field type '{field.type_annotation.name}'.")
         self._collect_function_signatures(program)
 
         for decl in program.declarations:
             if isinstance(decl, FunctionDeclaration):
                 self._analyze_function_declaration(decl)
+            elif isinstance(decl, (StructDeclaration, EnumDeclaration, ImportDeclaration)):
+                continue
             else:
                 self._analyze_statement(decl)
 
@@ -129,6 +164,11 @@ class SemanticAnalyzer:
             variable_bindings=dict(self._variable_bindings),
             function_bindings=dict(self._function_bindings),
             global_symbols=self._symbol_table.global_scope.symbols,
+            struct_declarations=dict(self._struct_declarations),
+            enum_declarations=dict(self._enum_declarations),
+            constructor_bindings=dict(self._constructor_bindings),
+            member_bindings=dict(self._member_bindings),
+            enum_variant_bindings=dict(self._enum_variant_bindings),
         )
 
     def _error(self, span: SourceSpan, message: str) -> None:
@@ -143,6 +183,46 @@ class SemanticAnalyzer:
             )
         )
 
+    def _collect_type_declarations(self, program: Program) -> None:
+        """Register all nominal types before resolving any function signatures."""
+        for declaration in program.declarations:
+            if isinstance(declaration, StructDeclaration):
+                name = declaration.name
+                if name in self._nominal_types or type_from_name(name) is not None or name in _BUILTIN_FUNCTIONS:
+                    self._error(SourceSpan.from_token(declaration.name_token),
+                                f"Duplicate or reserved type name '{name}'.")
+                    continue
+                if not declaration.fields:
+                    self._error(declaration.span, f"Struct '{name}' must declare at least one field.")
+                    continue
+                seen: set[str] = set()
+                for item in declaration.fields:
+                    if item.name in seen:
+                        self._error(SourceSpan.from_token(item.name_token),
+                                    f"Duplicate field '{item.name}' in struct '{name}'.")
+                    seen.add(item.name)
+                self._struct_declarations[name] = declaration
+                self._nominal_types[name] = UserDefinedType(name, "struct")
+            elif isinstance(declaration, EnumDeclaration):
+                name = declaration.name
+                if name in self._nominal_types or type_from_name(name) is not None or name in _BUILTIN_FUNCTIONS:
+                    self._error(SourceSpan.from_token(declaration.name_token),
+                                f"Duplicate or reserved type name '{name}'.")
+                    continue
+                seen_variants: set[str] = set()
+                for variant in declaration.variants:
+                    if variant.lexeme in seen_variants:
+                        self._error(SourceSpan.from_token(variant),
+                                    f"Duplicate variant '{variant.lexeme}' in enum '{name}'.")
+                    seen_variants.add(variant.lexeme)
+                if not declaration.variants:
+                    self._error(declaration.span, f"Enum '{name}' must declare at least one variant.")
+                self._enum_declarations[name] = declaration
+                self._nominal_types[name] = UserDefinedType(name, "enum")
+
+    def _resolve_type(self, name: str) -> StaticType | None:
+        return type_from_name(name) or self._nominal_types.get(name)
+
     # --- Pass 1: Function signature collection -------------------------------
 
     def _collect_function_signatures(self, program: Program) -> None:
@@ -150,7 +230,7 @@ class SemanticAnalyzer:
             if not isinstance(decl, FunctionDeclaration):
                 continue
 
-            return_type = type_from_name(decl.return_type.name)
+            return_type = self._resolve_type(decl.return_type.name)
             if return_type is None:
                 self._error(
                     decl.return_type.span,
@@ -166,7 +246,7 @@ class SemanticAnalyzer:
                         SourceSpan.from_token(param.name_token),
                         f"'{param.name}' is a reserved standard-library function name.",
                     )
-                param_type = type_from_name(param.type_annotation.name)
+                param_type = self._resolve_type(param.type_annotation.name)
                 if param_type is None:
                     self._error(
                         param.type_annotation.span,
@@ -198,6 +278,11 @@ class SemanticAnalyzer:
                         scope_depth=1,
                     )
                 )
+
+            if decl.name in self._nominal_types:
+                self._error(SourceSpan.from_token(decl.name_token),
+                            f"Function name '{decl.name}' conflicts with a declared type.")
+                continue
 
             if decl.name in _BUILTIN_FUNCTIONS:
                 self._error(
@@ -261,6 +346,8 @@ class SemanticAnalyzer:
             self._analyze_assignment(stmt)
         elif isinstance(stmt, IndexAssignmentStatement):
             self._analyze_index_assignment(stmt)
+        elif isinstance(stmt, MemberAssignmentStatement):
+            self._analyze_member_assignment(stmt)
         elif isinstance(stmt, BlockStatement):
             self._analyze_block(stmt)
         elif isinstance(stmt, IfStatement):
@@ -277,8 +364,12 @@ class SemanticAnalyzer:
             self._error(stmt.span, "Nested function declarations are not allowed.")
 
     def _analyze_variable_declaration(self, stmt: VariableDeclaration) -> None:
-        declared_type = type_from_name(stmt.type_annotation.name)
-        if declared_type is None:
+        declared_type = (
+            self._resolve_type(stmt.type_annotation.name)
+            if stmt.type_annotation is not None
+            else None
+        )
+        if stmt.type_annotation is not None and declared_type is None:
             self._error(
                 stmt.type_annotation.span,
                 f"Unknown type '{stmt.type_annotation.name}'.",
@@ -291,6 +382,12 @@ class SemanticAnalyzer:
             )
             declared_type = RifaiType.ERROR
 
+        if stmt.name in self._nominal_types:
+            self._error(
+                SourceSpan.from_token(stmt.name_token),
+                f"Variable name '{stmt.name}' conflicts with a declared type.",
+            )
+
         if stmt.name in _BUILTIN_FUNCTIONS:
             self._error(
                 SourceSpan.from_token(stmt.name_token),
@@ -299,12 +396,14 @@ class SemanticAnalyzer:
 
         init_type = self._analyze_expression(
             stmt.initializer,
-            expected_type=declared_type if is_array_type(declared_type) else None,
+            expected_type=declared_type if declared_type is not None and is_array_type(declared_type) else None,
         )
+        if declared_type is None:
+            declared_type = init_type
         if (
             not is_error_type(declared_type)
             and not is_error_type(init_type)
-            and init_type is not declared_type
+            and init_type != declared_type
         ):
             self._error(
                 stmt.initializer.span,
@@ -360,7 +459,7 @@ class SemanticAnalyzer:
         if (
             not is_error_type(symbol.rifai_type)
             and not is_error_type(value_type)
-            and value_type is not symbol.rifai_type
+            and value_type != symbol.rifai_type
         ):
             self._error(
                 stmt.value.span,
@@ -389,12 +488,41 @@ class SemanticAnalyzer:
         if (
             element_type is not None
             and not is_error_type(value_type)
-            and value_type is not element_type
+            and value_type != element_type
         ):
             self._error(
                 stmt.value.span,
                 f"Array element expects '{element_type.value}', got '{value_type.value}'.",
             )
+
+    def _analyze_member_assignment(self, stmt: MemberAssignmentStatement) -> None:
+        member_type = self._member_type(stmt.object, stmt.name, stmt.name_token, id(stmt))
+        value_type = self._analyze_expression(stmt.value)
+        if not is_error_type(member_type) and not is_error_type(value_type) and member_type != value_type:
+            self._error(stmt.value.span,
+                        f"Field '{stmt.name}' expects '{member_type.value}', got '{value_type.value}'.")
+
+    def _member_type(
+        self,
+        object_expression: Expression,
+        member_name: str,
+        member_token,
+        binding_key: int,
+    ) -> StaticType:
+        object_type = self._analyze_expression(object_expression)
+        if isinstance(object_type, UserDefinedType) and object_type.kind == "struct":
+            declaration = self._struct_declarations.get(object_type.name)
+            field = next((item for item in declaration.fields if item.name == member_name), None) if declaration else None
+            if field is None:
+                self._error(SourceSpan.from_token(member_token),
+                            f"Struct '{object_type.name}' has no field '{member_name}'.")
+                return RifaiType.ERROR
+            self._member_bindings[binding_key] = field
+            result = self._resolve_type(field.type_annotation.name)
+            return result or RifaiType.ERROR
+        self._error(SourceSpan.from_token(member_token),
+                    f"Field access requires a struct value, got '{object_type.value}'.")
+        return RifaiType.ERROR
 
     def _analyze_block(self, block: BlockStatement) -> None:
         self._symbol_table.enter_scope("block")
@@ -461,7 +589,7 @@ class SemanticAnalyzer:
         if (
             not is_error_type(expected)
             and not is_error_type(actual)
-            and actual is not expected
+            and actual != expected
         ):
             self._error(
                 stmt.value.span,
@@ -482,7 +610,7 @@ class SemanticAnalyzer:
         self,
         expr: Expression,
         *,
-        expected_type: RifaiType | None = None,
+        expected_type: StaticType | None = None,
     ) -> RifaiType:
         result_type: RifaiType
 
@@ -512,6 +640,23 @@ class SemanticAnalyzer:
                     f"Array index must have type 'int', got '{index_type.value}'.",
                 )
             result_type = element_type or RifaiType.ERROR
+        elif isinstance(expr, MemberExpression):
+            if (
+                isinstance(expr.object, VariableExpression)
+                and expr.object.name in self._enum_declarations
+            ):
+                declaration = self._enum_declarations[expr.object.name]
+                if not any(item.lexeme == expr.name for item in declaration.variants):
+                    self._error(SourceSpan.from_token(expr.name_token),
+                                f"Enum '{declaration.name}' has no variant '{expr.name}'.")
+                    result_type = RifaiType.ERROR
+                else:
+                    self._enum_variant_bindings[id(expr)] = (declaration.name, expr.name)
+                    result_type = self._nominal_types[declaration.name]
+            else:
+                result_type = self._member_type(
+                    expr.object, expr.name, expr.name_token, id(expr)
+                )
         elif isinstance(expr, UnaryExpression):
             result_type = self._analyze_unary(expr)
         elif isinstance(expr, BinaryExpression):
@@ -527,7 +672,7 @@ class SemanticAnalyzer:
     def _analyze_array_literal(
         self,
         expr: ArrayLiteralExpression,
-        expected_type: RifaiType | None,
+        expected_type: StaticType | None,
     ) -> RifaiType:
         if not expr.elements:
             if expected_type is not None and is_array_type(expected_type):
@@ -559,7 +704,7 @@ class SemanticAnalyzer:
             if (
                 expected_element is not None
                 and not is_error_type(actual_type)
-                and actual_type is not expected_element
+                and actual_type != expected_element
             ):
                 self._error(
                     item.span,
@@ -701,7 +846,32 @@ class SemanticAnalyzer:
 
         return RifaiType.ERROR
 
-    def _analyze_call(self, expr: FunctionCallExpression) -> RifaiType:
+    def _analyze_call(self, expr: FunctionCallExpression) -> StaticType:
+        struct = self._struct_declarations.get(expr.callee)
+        if struct is not None:
+            if len(expr.arguments) != len(struct.fields):
+                self._error(
+                    expr.span,
+                    f"Struct '{expr.callee}' expects {len(struct.fields)} field value(s), got {len(expr.arguments)}.",
+                )
+            for index, argument in enumerate(expr.arguments):
+                actual = self._analyze_expression(argument)
+                if index < len(struct.fields):
+                    expected = self._resolve_type(struct.fields[index].type_annotation.name)
+                    if expected is not None and not is_error_type(actual) and actual != expected:
+                        self._error(
+                            argument.span,
+                            f"Field '{struct.fields[index].name}' expects '{expected.value}', got '{actual.value}'.",
+                        )
+            self._constructor_bindings[id(expr)] = struct
+            return self._nominal_types[struct.name]
+
+        if expr.callee in {
+            "abs", "min", "max", "sqrt", "round", "to_int", "to_float",
+            "to_string", "contains", "starts_with", "ends_with", "substring",
+            "read_text", "write_text", "file_exists",
+        }:
+            return self._analyze_standard_library_call(expr)
         if expr.callee == "len":
             argument_types = [
                 self._analyze_expression(arg) for arg in expr.arguments
@@ -802,7 +972,7 @@ class SemanticAnalyzer:
                 expected is not None
                 and not is_error_type(arg_type)
                 and not is_error_type(expected)
-                and arg_type is not expected
+                and arg_type != expected
             ):
                 self._error(
                     arg_node.span,
@@ -810,6 +980,91 @@ class SemanticAnalyzer:
                     f"expects '{expected.value}', got '{arg_type.value}'.",
                 )
         return symbol.return_type
+
+    def _analyze_standard_library_call(self, expr: FunctionCallExpression) -> StaticType:
+        name = expr.callee
+        arguments = [self._analyze_expression(item) for item in expr.arguments]
+
+        def arity(expected: int) -> bool:
+            if len(arguments) != expected:
+                self._error(expr.span, f"'{name}' expects {expected} argument(s), got {len(arguments)}.")
+                return False
+            return True
+
+        def require(index: int, accepted: tuple[StaticType, ...], description: str) -> bool:
+            if index >= len(arguments) or is_error_type(arguments[index]):
+                return False
+            if arguments[index] not in accepted:
+                self._error(
+                    expr.arguments[index].span,
+                    f"'{name}' expects {description}, got '{arguments[index].value}'.",
+                )
+                return False
+            return True
+
+        numeric = (RifaiType.INT, RifaiType.FLOAT)
+        if name == "abs":
+            if not arity(1):
+                return RifaiType.ERROR
+            return arguments[0] if require(0, numeric, "an int or float") else RifaiType.ERROR
+        if name in ("min", "max"):
+            if not arity(2):
+                return RifaiType.ERROR
+            ok = require(0, numeric, "matching numeric values") and require(1, numeric, "matching numeric values")
+            if ok and arguments[0] != arguments[1]:
+                self._error(expr.span, f"'{name}' arguments must have the same numeric type.")
+                ok = False
+            return arguments[0] if ok else RifaiType.ERROR
+        if name == "sqrt":
+            if not arity(1):
+                return RifaiType.ERROR
+            return RifaiType.FLOAT if require(0, numeric, "an int or float") else RifaiType.ERROR
+        if name == "round":
+            if not arity(1):
+                return RifaiType.ERROR
+            return RifaiType.INT if require(0, numeric, "an int or float") else RifaiType.ERROR
+        if name == "to_int":
+            if not arity(1):
+                return RifaiType.ERROR
+            return RifaiType.INT if require(0, numeric, "an int or float") else RifaiType.ERROR
+        if name == "to_float":
+            if not arity(1):
+                return RifaiType.ERROR
+            return RifaiType.FLOAT if require(0, numeric, "an int or float") else RifaiType.ERROR
+        if name == "to_string":
+            if not arity(1):
+                return RifaiType.ERROR
+            if arguments[0] is RifaiType.VOID:
+                self._error(expr.arguments[0].span, "'to_string' cannot convert void.")
+                return RifaiType.ERROR
+            return RifaiType.STRING
+        if name in ("contains", "starts_with", "ends_with"):
+            if not arity(2):
+                return RifaiType.ERROR
+            ok = require(0, (RifaiType.STRING,), "a string") and require(1, (RifaiType.STRING,), "a string")
+            return RifaiType.BOOL if ok else RifaiType.ERROR
+        if name == "substring":
+            if not arity(3):
+                return RifaiType.ERROR
+            ok = (
+                require(0, (RifaiType.STRING,), "a string")
+                and require(1, (RifaiType.INT,), "an integer start index")
+                and require(2, (RifaiType.INT,), "an integer end index")
+            )
+            return RifaiType.STRING if ok else RifaiType.ERROR
+        if name in ("read_text", "file_exists"):
+            if not arity(1):
+                return RifaiType.ERROR
+            if not require(0, (RifaiType.STRING,), "a relative path string"):
+                return RifaiType.ERROR
+            return RifaiType.STRING if name == "read_text" else RifaiType.BOOL
+        if name == "write_text":
+            if not arity(2):
+                return RifaiType.ERROR
+            ok = require(0, (RifaiType.STRING,), "a relative path string")
+            ok = require(1, (RifaiType.STRING,), "text content") and ok
+            return RifaiType.BOOL if ok else RifaiType.ERROR
+        return RifaiType.ERROR
 
     # --- Control-flow return analysis ----------------------------------------
 

@@ -16,8 +16,9 @@ Rifa'i (.rif) is a custom statically typed programming language implemented in P
 - **Phase 10 — Data-Flow & Advanced Optimization (Complete):** CFG-aware constant propagation, constant-branch folding, unreachable-block elimination, profitable block-local common-subexpression elimination, and optimization statistics.
 - **Phase 11 — Intermediate Representation (Complete):** Typed explicit-value IR, basic-block parameters, bytecode-to-IR and IR-to-bytecode lowering, IR verification, canonical value numbering, dominator/loop analysis, and multi-pass compiler integration.
 - **Phase 12 — IR-Native Optimization (Complete):** Scalar constant propagation through IR values and block parameters, bounded constant folding, constant-branch simplification, unreachable-block elimination, fixed-point optimization, and verified lowering. `Compiler(optimize=False)` / `--no-optimize` disables both bytecode and IR transformations; `ir_optimize` can override the IR layer for isolated evaluation.
-- **Phase 13 — Direct AST-to-IR Compilation (Complete):** The normal source compiler now lowers the semantically-bound AST directly into typed IR, builds explicit control-flow blocks and function bodies, preserves source/debug metadata, verifies and optimizes IR, then lowers to the existing v4 bytecode backend. Bytecode-to-IR lifting remains available as a compatibility and round-trip API.
-- **Phase 14 — Advanced IR Optimization (Complete):** Dominance-aware global common-subexpression elimination, copy propagation, conservative dead-code elimination, natural-loop LICM, explicit side-effect/trap classification, dominance verification for cross-block values, and materialized-value bytecode lowering for safe multi-use/loop-carried values. All transformations preserve the existing v4 bytecode contract.
+- **Phase 13 — Direct AST-to-IR Compilation (Complete):** The normal source compiler now lowers the semantically-bound AST directly into typed IR, builds explicit control-flow blocks and function bodies, preserves source/debug metadata, verifies and optimizes IR, then lowers to the versioned bytecode backend (v5 for the new nominal-type features). Bytecode-to-IR lifting remains available as a compatibility and round-trip API.
+- **Phase 14 — Advanced IR Optimization (Complete):** Dominance-aware global common-subexpression elimination, copy propagation, conservative dead-code elimination, natural-loop LICM, explicit side-effect/trap classification, dominance verification for cross-block values, and materialized-value bytecode lowering for safe multi-use/loop-carried values. All transformations preserve the v4 bytecode contract used at the time of Phase 14.
+- **Phase 15 — Language Evolution (Complete):** Relative source modules with dependency ordering/cycle and traversal checks; nominal structs and unit enums; inferred local variables; field access and mutation; checked math/string/conversion/file standard-library functions; capability-based bounded UTF-8 file I/O; and bytecode v5 with continued v1-v4 compatibility.
 
 ## Quick Start
 
@@ -51,6 +52,9 @@ rifai inspect examples/hello.rif -o hello.inspect.json
 rifai-lsp
 # or: rifai lsp
 
+# Run the Phase 15 language example
+rifai run examples/phase15_language_evolution.rif
+
 # Run the complete test suite
 python -m pytest -v
 ```
@@ -81,7 +85,7 @@ The optimizer intentionally leaves operations that can raise at runtime (such as
 
 ## Runtime and File Hardening
 
-The VM bounds instruction count, operand-stack depth, call depth, local-frame size, integer bit length, individual string length, and total captured output. Limits are configurable through `VirtualMachine(...)`. Invalid limit values and malformed initial-global inputs are rejected explicitly.
+The VM bounds instruction count, operand-stack depth, call depth, local-frame size, integer bit length, individual string length, total captured output, array items, and file bytes. File I/O is disabled in the embedded VM API unless the host supplies an explicit project-root capability. Limits are configurable through `VirtualMachine(...)`. Invalid limit values and malformed initial-global inputs are rejected explicitly.
 
 Bytecode deserialization enforces the 16 MiB file limit and validates the complete input before execution. File writes use a temporary file in the destination directory followed by an atomic replacement, avoiding partially written `.rbc` files. The verifier also validates source-map coordinates and enforces structural complexity limits.
 
@@ -99,7 +103,7 @@ The bytecode format is version 2. The reader retains support for version 1 modul
 
 ## Testing
 
-The suite covers lexical and syntactic analysis, semantic errors, typed-array construction/indexing/mutation, standard collection functions, bytecode verification and serialization, VM operations, source compilation, control flow, local/global variables, function calls, recursion, optimization parity, optimizer invariants, resource limits, and CLI workflows.
+The suite covers lexical and syntactic analysis, nominal types, imports, inferred declarations, typed-array construction/indexing/mutation, standard-library functions, sandboxed file I/O, bytecode versions 1–5, VM operations, source compilation, control flow, local/global variables, function calls, recursion, optimization parity, optimizer invariants, resource limits, and CLI workflows.
 
 ```bash
 python -m pytest -v
@@ -201,3 +205,14 @@ print(result.ir_analysis.as_dict())
 ```
 
 The direct IR API is documented in docs/phase11-report.md.
+
+
+## Phase 15: Language Evolution
+
+Phase 15 adds source imports, nominal records/enums, local type inference, and standard-library functions. Imports are relative to the importing file, remain inside the root project directory, and are compiled in dependency-first order into one global namespace. Import cycles, traversal, duplicate declarations, and oversized module graphs are rejected.
+
+Structs use positional construction and dot-field reads/writes; they are mutable reference values. Enums expose immutable unit variants and same-type equality. Local declarations may omit their type annotation when the initializer provides an unambiguous type. Primitive arrays retain their existing type and runtime rules.
+
+The standard library now includes math and conversion helpers, string search/slicing, and text file operations. File access is a VM capability: embedded hosts must explicitly enable it and set a root directory. CLI and debugger sessions restrict it to the launched program directory. Reads and writes are UTF-8 and capped at 1 MiB by default.
+
+Bytecode v5 adds STRUCT_NEW, FIELD_GET, FIELD_SET, and ENUM_NEW, and supports nominal types in function signatures/debug metadata. The serializer, verifier, and VM continue to support v1-v4 modules. See [docs/phase15-report.md](docs/phase15-report.md), [docs/language-spec.md](docs/language-spec.md), and [docs/grammar.ebnf](docs/grammar.ebnf).

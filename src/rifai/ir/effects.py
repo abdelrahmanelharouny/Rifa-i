@@ -44,6 +44,7 @@ class IRSideEffectAnalysis:
         Opcode.ARRAY_SET,
         Opcode.ARRAY_PUSH,
         Opcode.ARRAY_POP,
+        Opcode.FIELD_SET,
     })
     _OBSERVABLE = frozenset({
         Opcode.STORE_LOCAL,
@@ -51,6 +52,7 @@ class IRSideEffectAnalysis:
         Opcode.ARRAY_SET,
         Opcode.ARRAY_PUSH,
         Opcode.ARRAY_POP,
+        Opcode.FIELD_SET,
         Opcode.CALL,
         Opcode.PRINT,
     })
@@ -59,6 +61,7 @@ class IRSideEffectAnalysis:
         Opcode.LOAD_GLOBAL,
         Opcode.ARRAY_GET,
         Opcode.LENGTH,
+        Opcode.FIELD_GET,
     })
     _MAY_TRAP = frozenset({
         Opcode.LOAD_LOCAL,
@@ -72,6 +75,10 @@ class IRSideEffectAnalysis:
         Opcode.LENGTH,
         Opcode.ARRAY_PUSH,
         Opcode.ARRAY_POP,
+        Opcode.STRUCT_NEW,
+        Opcode.FIELD_GET,
+        Opcode.FIELD_SET,
+        Opcode.ENUM_NEW,
         Opcode.CALL,
         Opcode.ADD,
         Opcode.SUBTRACT,

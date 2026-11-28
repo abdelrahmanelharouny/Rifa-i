@@ -15,6 +15,7 @@ from rifai.bytecode.module import (
     BytecodeDebugLocal,
     BytecodeModule,
     COLLECTIONS_FORMAT_VERSION,
+    NOMINAL_TYPES_FORMAT_VERSION,
     DEBUG_INFO_FORMAT_VERSION,
     FORMAT_VERSION,
     FUNCTIONS_FORMAT_VERSION,
@@ -268,11 +269,11 @@ def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
 
 
 class BytecodeSerializer:
-    """Encode and decode bytecode versions 1 through 4.
+    """Encode and decode bytecode versions 1 through 5.
 
     Version 1 stores a main chunk, version 2 adds function chunks, version 3
-    adds optional embedded debug metadata, and version 4 adds typed-array
-    instructions. Older versions remain readable and executable.
+    adds optional embedded debug metadata, version 4 adds typed arrays, and
+    version 5 adds nominal struct/enum operations. Older versions remain readable.
     """
 
     @staticmethod
@@ -281,11 +282,12 @@ class BytecodeSerializer:
             raise TypeError("module must be a BytecodeModule.")
         if type(module.format_version) is not int or module.format_version not in (
             LEGACY_FORMAT_VERSION, FUNCTIONS_FORMAT_VERSION,
-            DEBUG_INFO_FORMAT_VERSION, COLLECTIONS_FORMAT_VERSION
+            DEBUG_INFO_FORMAT_VERSION, COLLECTIONS_FORMAT_VERSION,
+            NOMINAL_TYPES_FORMAT_VERSION
         ):
             raise BytecodeFormatError(
                 f"Cannot write bytecode version {module.format_version}; "
-                "supported versions are 1, 2, 3, and 4."
+                "supported versions are 1, 2, 3, 4, and 5."
             )
         if module.format_version < FUNCTIONS_FORMAT_VERSION and module.functions:
             raise BytecodeFormatError("Version 1 bytecode cannot contain function chunks.")
@@ -348,10 +350,11 @@ class BytecodeSerializer:
         version = payload.get("format_version")
         if type(version) is not int or version not in (
             LEGACY_FORMAT_VERSION, FUNCTIONS_FORMAT_VERSION,
-            DEBUG_INFO_FORMAT_VERSION, COLLECTIONS_FORMAT_VERSION
+            DEBUG_INFO_FORMAT_VERSION, COLLECTIONS_FORMAT_VERSION,
+            NOMINAL_TYPES_FORMAT_VERSION
         ):
             raise BytecodeFormatError(
-                f"Unsupported bytecode version {version!r}; supported versions are 1, 2, 3, and 4."
+                f"Unsupported bytecode version {version!r}; supported versions are 1, 2, 3, 4, and 5."
             )
 
         expected_fields = {"magic", "format_version", "source_name", "constants", "main"}

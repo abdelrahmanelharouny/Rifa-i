@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from rifai.frontend.ast_nodes import SourceSpan
-from rifai.frontend.types import RifaiType
+from rifai.frontend.types import StaticType
 
 
 class SymbolKind(str, Enum):
@@ -22,7 +22,7 @@ class VariableSymbol:
     """Symbol metadata for a variable or function parameter."""
 
     name: str
-    rifai_type: RifaiType
+    rifai_type: StaticType
     declaration_span: SourceSpan
     is_parameter: bool
     is_global: bool
@@ -39,7 +39,7 @@ class FunctionSymbol:
 
     name: str
     params: tuple[VariableSymbol, ...]
-    return_type: RifaiType
+    return_type: StaticType
     declaration_span: SourceSpan
 
     @property

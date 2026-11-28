@@ -9,6 +9,8 @@ from rifai.vm.machine import (
 from rifai.vm.debugger import DebuggerResult, InteractiveDebugger
 from rifai.vm.runtime import (
     ArrayValue,
+    StructValue,
+    EnumValue,
     BytecodeValidationError,
     ExecutionResult,
     VMRuntimeError,
@@ -17,6 +19,8 @@ from rifai.vm.runtime import (
 
 __all__ = [
     "ArrayValue",
+    "StructValue",
+    "EnumValue",
     "BytecodeValidationError",
     "DebugFrameSnapshot",
     "DebugLocalSnapshot",

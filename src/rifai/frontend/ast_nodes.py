@@ -77,6 +77,45 @@ class Program(ASTNode):
 
 
 @dataclass(frozen=True, slots=True)
+class ImportDeclaration(Statement):
+    """A relative source-module import, resolved by the compiler."""
+
+    path: str
+    path_token: Token
+    span: SourceSpan
+
+
+@dataclass(frozen=True, slots=True)
+class StructField(ASTNode):
+    """One named, statically typed field in a struct declaration."""
+
+    name: str
+    name_token: Token
+    type_annotation: TypeAnnotation
+    span: SourceSpan
+
+
+@dataclass(frozen=True, slots=True)
+class StructDeclaration(Statement):
+    """Nominal record type with an ordered field schema."""
+
+    name: str
+    name_token: Token
+    fields: tuple[StructField, ...]
+    span: SourceSpan
+
+
+@dataclass(frozen=True, slots=True)
+class EnumDeclaration(Statement):
+    """Nominal enum with a finite set of unit variants."""
+
+    name: str
+    name_token: Token
+    variants: tuple[Token, ...]
+    span: SourceSpan
+
+
+@dataclass(frozen=True, slots=True)
 class BlockStatement(Statement):
     """Lexically scoped sequence of statements enclosed in braces."""
 
@@ -102,7 +141,7 @@ class VariableDeclaration(Statement):
 
     name: str
     name_token: Token
-    type_annotation: TypeAnnotation
+    type_annotation: TypeAnnotation | None
     initializer: Expression
     span: SourceSpan
 
@@ -123,6 +162,17 @@ class IndexAssignmentStatement(Statement):
 
     array: Expression
     index: Expression
+    value: Expression
+    span: SourceSpan
+
+
+@dataclass(frozen=True, slots=True)
+class MemberAssignmentStatement(Statement):
+    """Mutation of one field on a nominal struct value."""
+
+    object: Expression
+    name: str
+    name_token: Token
     value: Expression
     span: SourceSpan
 
@@ -244,24 +294,46 @@ class IndexExpression(Expression):
     span: SourceSpan
 
 
+@dataclass(frozen=True, slots=True)
+class MemberExpression(Expression):
+    """Struct field lookup or enum variant qualification."""
+
+    object: Expression
+    name: str
+    name_token: Token
+    span: SourceSpan
+
+
 def _node_label(node: ASTNode) -> str:
     if isinstance(node, Program):
         return "Program"
+    if isinstance(node, ImportDeclaration):
+        return f"Import {node.path}"
+    if isinstance(node, StructDeclaration):
+        return f"StructDeclaration {node.name}"
+    if isinstance(node, StructField):
+        return f"StructField {node.name}: {node.type_annotation.name}"
+    if isinstance(node, EnumDeclaration):
+        return f"EnumDeclaration {node.name}"
     if isinstance(node, FunctionDeclaration):
         params = ", ".join(f"{p.name}: {p.type_annotation.name}" for p in node.params)
         return f"FunctionDeclaration {node.name}({params}) -> {node.return_type.name}"
     if isinstance(node, Parameter):
         return f"Parameter {node.name}: {node.type_annotation.name}"
     if isinstance(node, VariableDeclaration):
-        return f"VariableDeclaration {node.name}: {node.type_annotation.name}"
+        return f"VariableDeclaration {node.name}: {node.type_annotation.name if node.type_annotation else 'inferred'}"
     if isinstance(node, AssignmentStatement):
         return f"AssignmentStatement {node.name} ="
     if isinstance(node, IndexAssignmentStatement):
         return "IndexAssignmentStatement"
+    if isinstance(node, MemberAssignmentStatement):
+        return f"MemberAssignmentStatement .{node.name}"
     if isinstance(node, ArrayLiteralExpression):
         return f"ArrayLiteral[{len(node.elements)}]"
     if isinstance(node, IndexExpression):
         return "IndexExpression"
+    if isinstance(node, MemberExpression):
+        return f"MemberExpression .{node.name}"
     if isinstance(node, BlockStatement):
         return "BlockStatement"
     if isinstance(node, IfStatement):
@@ -292,6 +364,12 @@ def _node_label(node: ASTNode) -> str:
 def _node_children(node: ASTNode) -> list[tuple[str | None, ASTNode]]:
     if isinstance(node, Program):
         return [(None, decl) for decl in node.declarations]
+    if isinstance(node, StructDeclaration):
+        return [(None, item) for item in node.fields]
+    if isinstance(node, MemberAssignmentStatement):
+        return [("object", node.object), ("value", node.value)]
+    if isinstance(node, MemberExpression):
+        return [("object", node.object)]
     if isinstance(node, FunctionDeclaration):
         return [("body", node.body)]
     if isinstance(node, VariableDeclaration):

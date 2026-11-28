@@ -103,17 +103,9 @@ def _run_check_command(file_path: Path) -> int:
     source = _read_source(file_path)
     if source is None:
         return 1
-    lex_result = Lexer(source).scan_tokens()
-    if lex_result.has_errors:
-        _print_diagnostics(lex_result.diagnostics, file_path)
-        return 1
-    parse_result = Parser(lex_result.tokens).parse()
-    if parse_result.has_errors:
-        _print_diagnostics(parse_result.diagnostics, file_path)
-        return 1
-    semantic_result = SemanticAnalyzer().analyze(parse_result.program)
-    if not semantic_result.is_valid:
-        _print_diagnostics(semantic_result.diagnostics, file_path)
+    result = Compiler(optimize=False).compile(source, source_name=str(file_path))
+    if not result.is_success:
+        _print_diagnostics(result.diagnostics, file_path)
         return 1
     print(f"Semantic check passed: {file_path}")
     return 0
@@ -209,7 +201,7 @@ def _load_bytecode(file_path: Path):
 
 def _execute_module(module, source_path: Path) -> int:
     try:
-        result = VirtualMachine().execute(module)
+        result = VirtualMachine(allow_file_io=True, file_root=source_path.resolve().parent).execute(module)
     except BytecodeValidationError as exc:
         _print_diagnostics(exc.diagnostics, source_path)
         return 1
@@ -334,6 +326,16 @@ def _run_debug_command(
         debug_symbols=debug_symbols,
         source_name=debug_source_name,
         breakpoints=breakpoints,
+        vm=VirtualMachine(
+            allow_file_io=True,
+            file_root=(
+                file_path.resolve().parent
+                if file_path.suffix.lower() == ".rif"
+                else Path(module.source_name).resolve().parent
+                if module.source_name
+                else file_path.resolve().parent
+            ),
+        ),
     )
     try:
         outcome = debugger.run()

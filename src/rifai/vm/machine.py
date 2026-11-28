@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+import os
+from pathlib import Path
+import tempfile
 from dataclasses import dataclass
 import math
 
@@ -10,8 +13,11 @@ from rifai.bytecode.chunk import BytecodeFunction, CodeChunk
 from rifai.bytecode.instructions import Instruction, Opcode
 from rifai.bytecode.module import BytecodeModule
 from rifai.bytecode.verifier import BytecodeVerifier
+from rifai.stdlib import BUILTIN_ARITIES, FILE_IO_FUNCTIONS
 from rifai.vm.runtime import (
     ArrayValue,
+    StructValue,
+    EnumValue,
     BytecodeValidationError,
     ExecutionResult,
     RuntimeValue,
@@ -89,6 +95,9 @@ class VirtualMachine:
         max_output_chars: int = 16 * 1024 * 1024,
         max_integer_bits: int = 1_000_000,
         max_array_items: int = 1_000_000,
+        allow_file_io: bool = False,
+        file_root: str | Path | None = None,
+        max_file_bytes: int = 1_048_576,
     ) -> None:
         limits = {
             "max_steps": max_steps,
@@ -98,6 +107,7 @@ class VirtualMachine:
             "max_output_chars": max_output_chars,
             "max_integer_bits": max_integer_bits,
             "max_array_items": max_array_items,
+            "max_file_bytes": max_file_bytes,
         }
         for name, value in limits.items():
             if type(value) is not int or value < 1:
@@ -109,6 +119,13 @@ class VirtualMachine:
         self.max_output_chars = max_output_chars
         self.max_integer_bits = max_integer_bits
         self.max_array_items = max_array_items
+        if type(allow_file_io) is not bool:
+            raise ValueError("allow_file_io must be a boolean.")
+        self.allow_file_io = allow_file_io
+        self.file_root = Path(file_root).resolve() if file_root is not None else None
+        if allow_file_io and self.file_root is None:
+            raise ValueError("file_root is required when file I/O is enabled.")
+        self.max_file_bytes = max_file_bytes
 
     @staticmethod
     def _matches_type(value: RuntimeValue, type_name: str) -> bool:
@@ -130,6 +147,10 @@ class VirtualMachine:
             return type(value) is float
         if type_name == "string":
             return type(value) is str
+        if isinstance(value, StructValue):
+            return value.type_name == type_name
+        if isinstance(value, EnumValue):
+            return value.type_name == type_name
         return False
 
     def execute(
@@ -152,8 +173,26 @@ class VirtualMachine:
         for name, value in (initial_globals or {}).items():
             if not isinstance(name, str) or not name:
                 raise ValueError("Initial global names must be non-empty strings.")
-            if type(value) not in (int, float, bool, str) and not isinstance(value, ArrayValue):
+            if type(value) not in (int, float, bool, str) and not isinstance(value, (ArrayValue, StructValue, EnumValue)):
                 raise ValueError(f"Initial global {name!r} has an unsupported value.")
+            if isinstance(value, (StructValue, EnumValue)) and not self._matches_type(value, value.type_name):
+                raise ValueError(f"Initial global {name!r} has an invalid nominal value.")
+            if isinstance(value, StructValue):
+                if (
+                    not isinstance(value.field_types, dict)
+                    or not isinstance(value.fields, dict)
+                    or any(
+                        field not in value.field_types
+                        or not isinstance(value.field_types[field], str)
+                        or not self._matches_type(field_value, value.field_types[field])
+                        for field, field_value in value.fields.items()
+                    )
+                ):
+                    raise ValueError(f"Initial global {name!r} has an invalid struct schema or field value.")
+            if isinstance(value, EnumValue) and (
+                not isinstance(value.variant, str) or not value.variant
+            ):
+                raise ValueError(f"Initial global {name!r} has an invalid enum variant.")
             if isinstance(value, ArrayValue):
                 if value.element_type not in {"int", "float", "bool", "string"}:
                     raise ValueError(f"Initial global {name!r} has an invalid array element type.")
@@ -211,6 +250,21 @@ class VirtualMachine:
                 location.line if location else 1,
                 location.column if location else 1,
             )
+
+        def resolve_file_path(raw_path: object, instruction: Instruction) -> Path:
+            if not self.allow_file_io or self.file_root is None:
+                raise fault("File I/O is disabled for this VM instance.", instruction)
+            if not isinstance(raw_path, str) or not raw_path.strip():
+                raise fault("File path must be a non-empty relative string.", instruction)
+            relative = Path(raw_path)
+            if relative.is_absolute() or any(part in ("..", "") for part in relative.parts):
+                raise fault("File path must stay inside the configured project directory.", instruction)
+            candidate = (self.file_root / relative).resolve()
+            try:
+                candidate.relative_to(self.file_root)
+            except ValueError:
+                raise fault("File path escapes the configured project directory.", instruction) from None
+            return candidate
 
         def pop(instruction: Instruction) -> RuntimeValue:
             if not stack:
@@ -339,6 +393,39 @@ class VirtualMachine:
                         instruction,
                     )
                 push(ArrayValue(element_type, list(values)), instruction)
+            elif opcode is Opcode.STRUCT_NEW:
+                type_name, schema_text = instruction.operand.split("|", 1)
+                field_types: dict[str, str] = {}
+                for entry in schema_text.split(","):
+                    field_name, field_type = entry.split(":", 1)
+                    field_types[field_name] = field_type
+                push(StructValue(type_name, field_types, {}), instruction)
+            elif opcode is Opcode.FIELD_GET:
+                record = pop(instruction)
+                if not isinstance(record, StructValue):
+                    raise fault("FIELD_GET requires a struct value.", instruction)
+                if instruction.operand not in record.field_types:
+                    raise fault(f"Struct '{record.type_name}' has no field '{instruction.operand}'.", instruction)
+                if instruction.operand not in record.fields:
+                    raise fault(f"Field '{instruction.operand}' was read before initialization.", instruction)
+                push(record.fields[instruction.operand], instruction)
+            elif opcode is Opcode.FIELD_SET:
+                value = pop(instruction)
+                record = pop(instruction)
+                if not isinstance(record, StructValue):
+                    raise fault("FIELD_SET requires a struct value.", instruction)
+                expected = record.field_types.get(instruction.operand)
+                if expected is None:
+                    raise fault(f"Struct '{record.type_name}' has no field '{instruction.operand}'.", instruction)
+                if not self._matches_type(value, expected):
+                    raise fault(f"Field '{instruction.operand}' expects '{expected}'.", instruction)
+                record.fields[instruction.operand] = value
+            elif opcode is Opcode.ENUM_NEW:
+                enum_name, variants_text, variant = instruction.operand.split("|", 2)
+                variants = variants_text.split(",")
+                if variant not in variants:
+                    raise fault(f"Enum '{enum_name}' has no variant '{variant}'.", instruction)
+                push(EnumValue(enum_name, variant), instruction)
             elif opcode is Opcode.ARRAY_GET:
                 index = pop(instruction)
                 array = pop(instruction)
@@ -524,6 +611,127 @@ class VirtualMachine:
                     next_ip = instruction.operand
             elif opcode is Opcode.CALL:
                 target = functions.get(instruction.operand)
+                if target is None and instruction.operand in BUILTIN_ARITIES:
+                    name = instruction.operand
+                    arity = BUILTIN_ARITIES[name]
+                    if len(stack) < arity:
+                        raise fault(f"Not enough arguments for standard-library function '{name}'.", instruction)
+                    args = stack[-arity:] if arity else []
+                    if arity:
+                        del stack[-arity:]
+
+                    def require_builtin_type(index: int, expected: str) -> None:
+                        if index >= len(args) or not self._matches_type(args[index], expected):
+                            raise fault(
+                                f"Standard-library function '{name}' expects argument {index + 1} to be {expected}.",
+                                instruction,
+                            )
+
+                    if name in ("abs", "sqrt", "round", "to_int", "to_float"):
+                        if type(args[0]) not in (int, float):
+                            raise fault(f"'{name}' expects a numeric argument.", instruction)
+                    elif name in ("min", "max"):
+                        if (
+                            type(args[0]) not in (int, float)
+                            or type(args[1]) is not type(args[0])
+                        ):
+                            raise fault(f"'{name}' expects two matching numeric arguments.", instruction)
+                    elif name in ("contains", "starts_with", "ends_with"):
+                        require_builtin_type(0, "string")
+                        require_builtin_type(1, "string")
+                    elif name == "substring":
+                        require_builtin_type(0, "string")
+                        require_builtin_type(1, "int")
+                        require_builtin_type(2, "int")
+                    elif name in ("read_text", "file_exists"):
+                        require_builtin_type(0, "string")
+                    elif name == "write_text":
+                        require_builtin_type(0, "string")
+                        require_builtin_type(1, "string")
+
+                    try:
+                        if name == "abs":
+                            value = abs(args[0])
+                        elif name == "min":
+                            value = min(args)
+                        elif name == "max":
+                            value = max(args)
+                        elif name == "sqrt":
+                            value = math.sqrt(args[0])
+                        elif name == "round":
+                            value = round(args[0])
+                        elif name == "to_int":
+                            value = int(args[0])
+                        elif name == "to_float":
+                            value = float(args[0])
+                        elif name == "to_string":
+                            value = format_value(args[0])
+                        elif name == "contains":
+                            value = args[1] in args[0]
+                        elif name == "starts_with":
+                            value = args[0].startswith(args[1])
+                        elif name == "ends_with":
+                            value = args[0].endswith(args[1])
+                        elif name == "substring":
+                            source, start, end = args
+                            if start < 0 or end < start or end > len(source):
+                                raise fault("substring indices are outside the string bounds.", instruction)
+                            value = source[start:end]
+                        elif name in FILE_IO_FUNCTIONS:
+                            target_path = resolve_file_path(args[0], instruction)
+                            if name == "file_exists":
+                                value = target_path.is_file()
+                            elif name == "read_text":
+                                try:
+                                    if target_path.stat().st_size > self.max_file_bytes:
+                                        raise fault(f"File exceeds the configured read limit ({self.max_file_bytes} bytes).", instruction)
+                                    with target_path.open("rb") as handle:
+                                        payload = handle.read(self.max_file_bytes + 1)
+                                    if len(payload) > self.max_file_bytes:
+                                        raise fault(f"File exceeds the configured read limit ({self.max_file_bytes} bytes).", instruction)
+                                    try:
+                                        value = payload.decode("utf-8")
+                                    except UnicodeDecodeError:
+                                        raise fault("File is not valid UTF-8 text.", instruction) from None
+                                except UnicodeDecodeError:
+                                    raise fault("File is not valid UTF-8 text.", instruction) from None
+                                except OSError as exc:
+                                    raise fault(f"Could not read file: {exc.strerror or exc}.", instruction) from None
+                            else:
+                                content = args[1]
+                                encoded = content.encode("utf-8")
+                                if len(encoded) > self.max_file_bytes:
+                                    raise fault(f"File exceeds the configured write limit ({self.max_file_bytes} bytes).", instruction)
+                                if not target_path.parent.is_dir():
+                                    raise fault("Parent directory for file write does not exist.", instruction)
+                                temporary_path = None
+                                try:
+                                    with tempfile.NamedTemporaryFile(
+                                        mode="wb",
+                                        dir=target_path.parent,
+                                        prefix=".rifai-",
+                                        delete=False,
+                                    ) as handle:
+                                        temporary_path = Path(handle.name)
+                                        handle.write(encoded)
+                                        handle.flush()
+                                        os.fsync(handle.fileno())
+                                    os.replace(temporary_path, target_path)
+                                    value = True
+                                except OSError as exc:
+                                    if temporary_path is not None:
+                                        try:
+                                            temporary_path.unlink(missing_ok=True)
+                                        except OSError:
+                                            pass
+                                    raise fault(f"Could not write file: {exc.strerror or exc}.", instruction) from None
+                        else:
+                            raise fault(f"Unknown standard-library function '{name}'.", instruction)
+                    except (ArithmeticError, TypeError, ValueError, OverflowError) as exc:
+                        raise fault(f"Standard-library function '{name}' failed: {exc}.", instruction) from None
+                    push(value, instruction)
+                    frame.ip = next_ip
+                    continue
                 if target is None:
                     raise fault(f"Undefined function '{instruction.operand}'.", instruction)
                 if len(frames) >= self.max_call_depth:

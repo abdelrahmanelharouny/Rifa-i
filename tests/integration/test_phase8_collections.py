@@ -22,6 +22,6 @@ def test_compile_command_emits_bytecode_v4_for_collections(tmp_path, capsys) -> 
     assert main(["compile", str(source)]) == 0
     capsys.readouterr()
     module = BytecodeSerializer.read(source.with_suffix(".rbc"))
-    assert module.format_version == 4
+    assert module.format_version == 5
     assert any(instruction.opcode.value == "ARRAY_NEW_INT" for instruction in module.main.instructions)
     assert any(instruction.opcode.value == "LENGTH" for instruction in module.main.instructions)

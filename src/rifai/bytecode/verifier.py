@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
+import re
 
 from rifai.bytecode.chunk import BytecodeFunction, CodeChunk
 from rifai.bytecode.instructions import (
@@ -19,6 +20,7 @@ from rifai.bytecode.module import (
     BytecodeDebugLocal,
     BytecodeModule,
     COLLECTIONS_FORMAT_VERSION,
+    NOMINAL_TYPES_FORMAT_VERSION,
     DEBUG_INFO_FORMAT_VERSION,
     FORMAT_VERSION,
     FUNCTIONS_FORMAT_VERSION,
@@ -26,6 +28,7 @@ from rifai.bytecode.module import (
     is_constant,
 )
 from rifai.errors.diagnostics import Diagnostic, DiagnosticPhase
+from rifai.stdlib import BUILTIN_ARITIES, BUILTIN_FUNCTIONS
 
 _ALLOWED_VALUE_TYPES = frozenset({"int", "float", "bool", "string", "int[]", "float[]", "bool[]", "string[]"})
 _ALLOWED_RETURN_TYPES = _ALLOWED_VALUE_TYPES | {"void"}
@@ -35,6 +38,57 @@ MAX_INSTRUCTIONS_PER_CHUNK = 1_000_000
 MAX_LOCAL_COUNT = 100_000
 MAX_CONSTANT_STRING_CHARS = 16 * 1024 * 1024
 MAX_DEBUG_SOURCE_CHARS = 8 * 1024 * 1024
+
+
+def _is_identifier(value: str) -> bool:
+    return bool(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value))
+
+
+def _is_nominal_type_name(value: str) -> bool:
+    return (
+        _is_identifier(value)
+        and value != "void"
+        and value not in BUILTIN_FUNCTIONS
+        and value not in _ALLOWED_VALUE_TYPES
+    )
+
+
+def _valid_type_name(value: str, allow_nominal: bool) -> bool:
+    return value in _ALLOWED_VALUE_TYPES or (allow_nominal and _is_nominal_type_name(value))
+
+
+def _valid_struct_schema(value: str) -> bool:
+    if len(value) > 4096 or "|" not in value:
+        return False
+    type_name, fields = value.split("|", 1)
+    if not _is_nominal_type_name(type_name) or not fields:
+        return False
+    seen: set[str] = set()
+    for field in fields.split(","):
+        if ":" not in field:
+            return False
+        name, field_type = field.split(":", 1)
+        if not _is_identifier(name) or name in seen:
+            return False
+        if field_type not in _ALLOWED_VALUE_TYPES and not _is_nominal_type_name(field_type):
+            return False
+        seen.add(name)
+    return bool(seen)
+
+
+def _valid_enum_variant(value: str) -> bool:
+    if len(value) > 4096 or value.count("|") != 2:
+        return False
+    type_name, variants_text, active = value.split("|")
+    if not _is_nominal_type_name(type_name) or not _is_identifier(active):
+        return False
+    variants = variants_text.split(",") if variants_text else []
+    return (
+        0 < len(variants) <= 256
+        and all(_is_identifier(item) for item in variants)
+        and len(set(variants)) == len(variants)
+        and active in variants
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,6 +134,7 @@ class BytecodeVerifier:
             FUNCTIONS_FORMAT_VERSION,
             DEBUG_INFO_FORMAT_VERSION,
             COLLECTIONS_FORMAT_VERSION,
+            NOMINAL_TYPES_FORMAT_VERSION,
         ):
             report(f"Unsupported bytecode version {module.format_version!r}.")
         if module.source_name is not None and not isinstance(module.source_name, str):
@@ -119,6 +174,10 @@ class BytecodeVerifier:
         supports_collections = (
             type(module.format_version) is int
             and module.format_version >= COLLECTIONS_FORMAT_VERSION
+        )
+        supports_nominal_types = (
+            type(module.format_version) is int
+            and module.format_version >= NOMINAL_TYPES_FORMAT_VERSION
         )
         if not supports_functions and module.functions:
             report("Version 1 bytecode cannot contain function chunks.")
@@ -186,7 +245,7 @@ class BytecodeVerifier:
                                 seen_slots.add(symbol.slot)
                             if not isinstance(symbol.name, str) or not symbol.name:
                                 report(f"Debug local in '{chunk_name}' has an invalid name.")
-                            if not isinstance(symbol.type_name, str) or symbol.type_name not in _ALLOWED_VALUE_TYPES:
+                            if not isinstance(symbol.type_name, str) or not _valid_type_name(symbol.type_name, supports_nominal_types):
                                 report(f"Debug local in '{chunk_name}' has an invalid type.")
                             elif not supports_collections and symbol.type_name.endswith("[]"):
                                 report(
@@ -215,7 +274,7 @@ class BytecodeVerifier:
             parameter_types_valid = (
                 isinstance(function.parameter_types, tuple)
                 and all(
-                    isinstance(item, str) and item in _ALLOWED_VALUE_TYPES
+                    isinstance(item, str) and _valid_type_name(item, supports_nominal_types)
                     for item in function.parameter_types
                 )
             )
@@ -223,7 +282,9 @@ class BytecodeVerifier:
                 report(f"Function '{function.name}' has invalid parameter types.")
             return_type_valid = (
                 isinstance(function.return_type, str)
-                and function.return_type in _ALLOWED_RETURN_TYPES
+                and (function.return_type in _ALLOWED_RETURN_TYPES or (
+                    supports_nominal_types and _is_nominal_type_name(function.return_type)
+                ))
             )
             if not return_type_valid:
                 report(f"Function '{function.name}' has an invalid return type.")
@@ -389,9 +450,33 @@ class BytecodeVerifier:
                 } and (operand < 0 or operand > 1_000_000):
                     report("Array literal element count is outside the supported limit.", instruction)
                     continue
+                elif opcode in {Opcode.STRUCT_NEW, Opcode.FIELD_GET, Opcode.FIELD_SET, Opcode.ENUM_NEW}:
+                    if not supports_nominal_types:
+                        report(f"{opcode.value} requires bytecode version {NOMINAL_TYPES_FORMAT_VERSION}.", instruction)
+                        continue
+                    if not isinstance(operand, str) or not operand:
+                        report(f"{opcode.value} requires a non-empty string operand.", instruction)
+                        continue
+                    if opcode is Opcode.STRUCT_NEW and not _valid_struct_schema(operand):
+                        report("STRUCT_NEW has an invalid or oversized field schema.", instruction)
+                        continue
+                    if opcode in (Opcode.FIELD_GET, Opcode.FIELD_SET) and not _is_identifier(operand):
+                        report(f"{opcode.value} has an invalid field name.", instruction)
+                        continue
+                    if opcode is Opcode.ENUM_NEW and not _valid_enum_variant(operand):
+                        report("ENUM_NEW requires a valid Enum|Variants|SelectedVariant schema.", instruction)
+                        continue
                 elif opcode is Opcode.CALL:
-                    if not supports_functions or operand not in function_by_name:
-                        report(f"Call target '{operand}' does not exist in this bytecode module.", instruction)
+                    if operand in BUILTIN_ARITIES and not supports_nominal_types:
+                        report(
+                            f"Standard-library CALL '{operand}' requires bytecode version {NOMINAL_TYPES_FORMAT_VERSION}.",
+                            instruction,
+                        )
+                        continue
+                    if not supports_functions or (
+                        operand not in function_by_name and operand not in BUILTIN_ARITIES
+                    ):
+                        report(f"Call target '{operand}' does not exist in this bytecode module or standard library.", instruction)
                         continue
                 elif opcode is Opcode.HALT and not is_main:
                     report("HALT is only valid in the main chunk.", instruction)
@@ -416,10 +501,9 @@ class BytecodeVerifier:
 
                 if opcode is Opcode.CALL:
                     target = function_by_name.get(instruction.operand)
-                    required = target.arity if target is not None else 0
-                    delta = -required + (
-                        1 if target is not None and target.returns_value else 0
-                    )
+                    required = target.arity if target is not None else BUILTIN_ARITIES.get(instruction.operand, 0)
+                    returns_value = target.returns_value if target is not None else True
+                    delta = -required + (1 if returns_value else 0)
                 elif opcode in {
                     Opcode.ARRAY_NEW_INT, Opcode.ARRAY_NEW_FLOAT,
                     Opcode.ARRAY_NEW_BOOL, Opcode.ARRAY_NEW_STRING,

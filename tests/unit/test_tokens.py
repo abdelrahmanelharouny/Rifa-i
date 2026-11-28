@@ -64,6 +64,9 @@ def test_all_reserved_keywords_have_distinct_token_types() -> None:
         "true": TokenType.TRUE,
         "false": TokenType.FALSE,
         "print": TokenType.PRINT,
+        "import": TokenType.IMPORT,
+        "struct": TokenType.STRUCT,
+        "enum": TokenType.ENUM,
         "int": TokenType.TYPE_INT,
         "float": TokenType.TYPE_FLOAT,
         "bool": TokenType.TYPE_BOOL,
@@ -94,6 +97,9 @@ def test_required_token_types_exist() -> None:
         "TRUE",
         "FALSE",
         "PRINT",
+        "IMPORT",
+        "STRUCT",
+        "ENUM",
         "TYPE_INT",
         "TYPE_FLOAT",
         "TYPE_BOOL",
@@ -121,6 +127,7 @@ def test_required_token_types_exist() -> None:
         "COLON",
         "SEMICOLON",
         "COMMA",
+        "DOT",
         "ARROW",
     }
 

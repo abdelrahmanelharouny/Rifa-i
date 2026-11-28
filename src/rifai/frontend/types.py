@@ -1,9 +1,10 @@
-"""Static type definitions and type-system helpers for Rifa'i."""
+"""Static primitive, collection, and nominal type definitions for Rifa'i."""
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from enum import Enum
-from typing import Final
+from typing import Final, TypeAlias
 
 
 class RifaiType(str, Enum):
@@ -19,6 +20,21 @@ class RifaiType(str, Enum):
     STRING_ARRAY = "string[]"
     VOID = "void"
     ERROR = "<error>"
+
+
+@dataclass(frozen=True, slots=True)
+class UserDefinedType:
+    """A nominal struct or enum type, distinguished by name and kind."""
+
+    name: str
+    kind: str
+
+    @property
+    def value(self) -> str:
+        return self.name
+
+
+StaticType: TypeAlias = RifaiType | UserDefinedType
 
 
 _NAMED_TYPES: Final[dict[str, RifaiType]] = {
@@ -45,37 +61,42 @@ _ELEMENT_ARRAY_TYPES: Final[dict[RifaiType, RifaiType]] = {
 
 
 def type_from_name(name: str) -> RifaiType | None:
-    """Resolve a textual type annotation to a static Rifa'i type."""
+    """Resolve a primitive or typed-array textual annotation."""
     return _NAMED_TYPES.get(name)
 
 
-def array_element_type(rifai_type: RifaiType) -> RifaiType | None:
+def type_name(value: StaticType) -> str:
+    """Return the stable bytecode/debug name for a static type."""
+    return value.value if isinstance(value, RifaiType) else value.name
+
+
+def array_element_type(rifai_type: StaticType) -> RifaiType | None:
     """Return the primitive element type of a one-dimensional array type."""
-    return _ARRAY_ELEMENT_TYPES.get(rifai_type)
+    return _ARRAY_ELEMENT_TYPES.get(rifai_type) if isinstance(rifai_type, RifaiType) else None
 
 
-def array_type_for(element_type: RifaiType) -> RifaiType | None:
+def array_type_for(element_type: StaticType) -> RifaiType | None:
     """Return the corresponding array type for a primitive element type."""
-    return _ELEMENT_ARRAY_TYPES.get(element_type)
+    return _ELEMENT_ARRAY_TYPES.get(element_type) if isinstance(element_type, RifaiType) else None
 
 
-def is_array_type(rifai_type: RifaiType) -> bool:
-    return rifai_type in _ARRAY_ELEMENT_TYPES
+def is_array_type(rifai_type: StaticType) -> bool:
+    return isinstance(rifai_type, RifaiType) and rifai_type in _ARRAY_ELEMENT_TYPES
 
 
-def is_numeric(rifai_type: RifaiType) -> bool:
+def is_numeric(rifai_type: StaticType) -> bool:
     return rifai_type in (RifaiType.INT, RifaiType.FLOAT)
 
 
-def is_value_type(rifai_type: RifaiType) -> bool:
-    """Return True for primitive types valid in scalar equality operations."""
+def is_value_type(rifai_type: StaticType) -> bool:
+    """Return True for primitive values valid in scalar equality operations."""
     return rifai_type in (
         RifaiType.INT,
         RifaiType.FLOAT,
         RifaiType.BOOL,
         RifaiType.STRING,
-    )
+    ) or (isinstance(rifai_type, UserDefinedType) and rifai_type.kind == "enum")
 
 
-def is_error_type(rifai_type: RifaiType) -> bool:
+def is_error_type(rifai_type: StaticType) -> bool:
     return rifai_type is RifaiType.ERROR

@@ -29,6 +29,9 @@ class TokenType(str, Enum):
     ELSE = "ELSE"
     WHILE = "WHILE"
     PRINT = "PRINT"
+    IMPORT = "IMPORT"
+    STRUCT = "STRUCT"
+    ENUM = "ENUM"
 
     # Keywords — boolean literals
     TRUE = "TRUE"
@@ -70,6 +73,7 @@ class TokenType(str, Enum):
     COLON = "COLON"
     SEMICOLON = "SEMICOLON"
     COMMA = "COMMA"
+    DOT = "DOT"
     ARROW = "ARROW"
 
 
@@ -83,6 +87,9 @@ KEYWORDS: Final[dict[str, TokenType]] = {
     "true": TokenType.TRUE,
     "false": TokenType.FALSE,
     "print": TokenType.PRINT,
+    "import": TokenType.IMPORT,
+    "struct": TokenType.STRUCT,
+    "enum": TokenType.ENUM,
     "int": TokenType.TYPE_INT,
     "float": TokenType.TYPE_FLOAT,
     "bool": TokenType.TYPE_BOOL,

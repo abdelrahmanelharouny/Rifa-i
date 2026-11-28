@@ -17,6 +17,7 @@ from rifai.bytecode.chunk import BytecodeFunction, CodeChunk
 from rifai.bytecode.instructions import Instruction, Opcode, stack_delta
 from rifai.bytecode.module import BytecodeDebugInfo, BytecodeDebugLocal, BytecodeModule
 from rifai.bytecode.verifier import MAX_LOCAL_COUNT, BytecodeVerifier
+from rifai.stdlib import BUILTIN_ARITIES
 
 _UNKNOWN = object()
 _CONSTANT_TYPES = (int, float, bool, str)
@@ -136,9 +137,12 @@ def _stack_heights(
         for instruction in chunk.instructions[block.start:block.end + 1]:
             opcode = instruction.opcode
             if opcode is Opcode.CALL:
-                target = functions[instruction.operand]
-                height -= target.arity
-                if target.returns_value:
+                target = functions.get(instruction.operand)
+                arity = target.arity if target is not None else BUILTIN_ARITIES.get(instruction.operand)
+                if arity is None:
+                    raise ValueError(f"Unknown CALL target '{instruction.operand}'.")
+                height -= arity
+                if target is None or target.returns_value:
                     height += 1
             elif opcode in _ARRAY_NEW:
                 height += 1 - instruction.operand
@@ -212,10 +216,13 @@ def _execute_abstract_instruction(
         condition = _pop(stack)[0]
         return condition if type(condition) is bool else None
     elif opcode is Opcode.CALL:
-        target = functions[instruction.operand]
-        _pop(stack, target.arity)
+        target = functions.get(instruction.operand)
+        arity = target.arity if target is not None else BUILTIN_ARITIES.get(instruction.operand)
+        if arity is None:
+            raise ValueError(f"Unknown CALL target '{instruction.operand}'.")
+        _pop(stack, arity)
         globals_.clear()
-        if target.returns_value:
+        if target is None or target.returns_value:
             stack.append(_UNKNOWN)
     elif opcode in _ARRAY_NEW:
         _pop(stack, instruction.operand)
@@ -233,6 +240,13 @@ def _execute_abstract_instruction(
     elif opcode is Opcode.ARRAY_POP:
         _pop(stack)
         stack.append(_UNKNOWN)
+    elif opcode in (Opcode.STRUCT_NEW, Opcode.ENUM_NEW):
+        stack.append(_UNKNOWN)
+    elif opcode is Opcode.FIELD_GET:
+        _pop(stack)
+        stack.append(_UNKNOWN)
+    elif opcode is Opcode.FIELD_SET:
+        _pop(stack, 2)
     elif opcode is Opcode.RETURN:
         if return_type is not None and return_type != "void":
             _pop(stack)
@@ -618,12 +632,15 @@ def _cse_chunk(
                 output.append(instruction)
                 continue
             if opcode is Opcode.CALL:
-                target = functions[instruction.operand]
-                _pop(stack, target.arity)
+                target = functions.get(instruction.operand)
+                arity = target.arity if target is not None else BUILTIN_ARITIES.get(instruction.operand)
+                if arity is None:
+                    raise ValueError(f"Unknown CALL target '{instruction.operand}'.")
+                _pop(stack, arity)
                 output.append(instruction)
                 cache.clear()
                 global_epoch += 1
-                if target.returns_value:
+                if target is None or target.returns_value:
                     stack.append(_UNKNOWN)
                 continue
             if opcode in _ARRAY_NEW:
@@ -648,6 +665,16 @@ def _cse_chunk(
                 cache.clear()
                 _pop(stack)
                 stack.append(_UNKNOWN)
+            elif opcode in (Opcode.STRUCT_NEW, Opcode.ENUM_NEW):
+                cache.clear()
+                stack.append(_UNKNOWN)
+            elif opcode is Opcode.FIELD_GET:
+                cache.clear()
+                _pop(stack)
+                stack.append(_UNKNOWN)
+            elif opcode is Opcode.FIELD_SET:
+                cache.clear()
+                _pop(stack, 2)
             elif opcode is Opcode.RETURN and return_type not in (None, "void"):
                 _pop(stack)
             output.append(instruction)

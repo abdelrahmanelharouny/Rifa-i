@@ -12,6 +12,7 @@ from rifai.bytecode import (
     BytecodeDebugLocal,
     BytecodeFunction,
     COLLECTIONS_FORMAT_VERSION,
+    NOMINAL_TYPES_FORMAT_VERSION,
     DEBUG_INFO_FORMAT_VERSION,
     BytecodeModule,
     BytecodeOptimizer,
@@ -67,9 +68,11 @@ from rifai.frontend.lexer import Lexer, LexResult
 from rifai.frontend.parser import Parser, ParseResult
 from rifai.frontend.semantic import SemanticAnalyzer, SemanticResult
 from rifai.frontend.tokens import KEYWORDS, Token, TokenType
-from rifai.frontend.types import RifaiType
+from rifai.frontend.types import RifaiType, StaticType, UserDefinedType
 from rifai.vm import (
     ArrayValue,
+    StructValue,
+    EnumValue,
     DebugFrameSnapshot,
     DebugLocalSnapshot,
     DebuggerResult,
@@ -80,7 +83,7 @@ from rifai.vm import (
     VMRuntimeError,
 )
 
-__version__ = "0.15.0"
+__version__ = "0.16.0"
 
 __all__ = [
     "BasicBlock",
@@ -126,8 +129,13 @@ __all__ = [
     "BytecodeDebugInfo",
     "BytecodeDebugLocal",
     "COLLECTIONS_FORMAT_VERSION",
+    "NOMINAL_TYPES_FORMAT_VERSION",
     "DEBUG_INFO_FORMAT_VERSION",
     "ArrayValue",
+    "StructValue",
+    "EnumValue",
+    "StaticType",
+    "UserDefinedType",
     "BytecodeFunction",
     "BytecodeModule",
     "BytecodeOptimizer",

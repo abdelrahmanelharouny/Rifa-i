@@ -1,0 +1,27 @@
+fn calculate(a: int, b: int, flag: bool) -> int {
+    let seed: int = a + b;
+    if (flag) {
+        let answer: int = a + b;
+        return answer;
+    } else {
+        let answer: int = a + b;
+        return answer;
+    }
+}
+
+fn count_less(a: int, b: int, limit: int) -> int {
+    let index: int = 0;
+    let total: int = 0;
+    while (index < limit) {
+        let condition: bool = a < b;
+        if (condition) {
+            total = total + 1;
+        }
+        index = index + 1;
+    }
+    return total;
+}
+
+print(calculate(10, 20, true));
+print(calculate(10, 20, false));
+print(count_less(1, 2, 3));

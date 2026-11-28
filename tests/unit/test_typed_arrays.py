@@ -98,7 +98,7 @@ def test_arrays_are_reference_values_and_alias_mutations_are_visible() -> None:
         ("let values: int[] = [1]; push(values, true);", "'push' expects an element of type 'int'"),
         ("let size: int = len(10);", "'len' expects a string or array"),
         ('let value: int = pop("text");', "'pop' expects an array"),
-        ("let values: int[] = [[1], [2]];", "Arrays can contain only primitive"),
+        ("let values: int[] = [[1], [2]];", "Array elements must all have type 'int'"),
     ],
 )
 def test_array_types_and_builtins_are_checked_statically(source: str, expected: str) -> None:

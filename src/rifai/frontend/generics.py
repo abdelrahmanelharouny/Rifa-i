@@ -486,6 +486,7 @@ class GenericSpecializer:
         return_type = self._specialize_annotation(function.return_type, {})
         env = {p.name: p.type_annotation.name for p in params}
         body = self._rewrite_block(function.body, env, {})
+        self._function_returns[function.name] = return_type.name
         return replace(function, params=params, return_type=return_type, body=body)
 
     def _rewrite_block(self, block: BlockStatement, env: dict[str, str],

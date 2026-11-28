@@ -107,6 +107,14 @@ jobs:
           rifai inspect examples/phase16_advanced_control_flow.rif --output /tmp/rifai-phase16.json
           python -c "import json; p=json.load(open('/tmp/rifai-phase16.json', encoding='utf-8')); assert p['success'] and p['stages']['ir']['origin'] == 'direct-ast' and p['stages']['bytecode']['format_version'] == 6"
 
+      - name: Validate Phase 17 algebraic data types and exhaustive matching
+        run: |
+          rifai check examples/phase17_algebraic_data_types.rif
+          rifai run examples/phase17_algebraic_data_types.rif > /tmp/rifai-phase17.txt
+          python -c "from pathlib import Path; assert Path('/tmp/rifai-phase17.txt').read_text(encoding='utf-8').strip().splitlines() == ['value=42', 'error=offline', 'items7', 'empty', 'fallback']"
+          rifai inspect examples/phase17_algebraic_data_types.rif --output /tmp/rifai-phase17.json
+          python -c "import json; p=json.load(open('/tmp/rifai-phase17.json', encoding='utf-8')); assert p['success'] and p['stages']['ir']['origin'] == 'direct-ast' and p['stages']['bytecode']['format_version'] == 6"
+
       - name: Verify interactive debugger smoke test
         run: |
           printf '%s\n' continue continue | rifai debug examples/phase7_debugger.rif --breakpoint 4 > /tmp/rifai-debug.txt

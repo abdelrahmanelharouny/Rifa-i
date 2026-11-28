@@ -319,7 +319,9 @@ print(user.age);
 print(user.status == Status.Ready);
 """
     compiled = _compile(source)
-    lifted = BytecodeToIR().build(compiled.module)
+    from dataclasses import replace
+    legacy_v5 = replace(compiled.module, format_version=5)
+    lifted = BytecodeToIR().build(legacy_v5)
     assert IRVerifier().verify(lifted).is_valid
 
     lowered = IRToBytecode().lower(lifted)

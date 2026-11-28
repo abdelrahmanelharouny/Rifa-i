@@ -70,7 +70,7 @@ print(updated.state == State.Ready);
 print(to_string(updated));
 """
     result = _compile(source)
-    assert result.module.format_version == FORMAT_VERSION == 5
+    assert result.module.format_version == FORMAT_VERSION == 6
     execution = VirtualMachine().execute(result.module)
     assert execution.output == (
         "Ada",

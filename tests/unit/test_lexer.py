@@ -101,7 +101,7 @@ def test_string_literals_and_escape_sequences() -> None:
 
 
 def test_operators_and_delimiters() -> None:
-    source = "+ - * / % = == != < <= > >= ( ) { } : ; , ->"
+    source = "+ - * / % = == != < <= > >= ( ) { } : ; , -> =>"
     result = Lexer(source).scan_tokens()
 
     assert not result.has_errors
@@ -126,6 +126,7 @@ def test_operators_and_delimiters() -> None:
         TokenType.SEMICOLON,
         TokenType.COMMA,
         TokenType.ARROW,
+        TokenType.FAT_ARROW,
         TokenType.EOF,
     ]
     _assert_offsets_match_source(source, result.tokens)

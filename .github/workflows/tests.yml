@@ -38,7 +38,7 @@ jobs:
         run: |
           rifai-lsp --version
           rifai inspect examples/hello.rif --output /tmp/rifai-inspect.json
-          python -c "import json; p=json.load(open('/tmp/rifai-inspect.json', encoding='utf-8')); b=p['stages']['bytecode']; assert p['success'] and b['format_version'] == 5 and b['control_flow']['<main>']['block_count'] > 0"
+          python -c "import json; p=json.load(open('/tmp/rifai-inspect.json', encoding='utf-8')); b=p['stages']['bytecode']; assert p['success'] and b['format_version'] == 6 and b['control_flow']['<main>']['block_count'] > 0"
 
       - name: Validate debugger example
         run: rifai check examples/phase7_debugger.rif
@@ -79,7 +79,7 @@ jobs:
           rifai run examples/phase13_direct_ast_to_ir.rif > /tmp/rifai-phase13.txt
           python -c "from pathlib import Path; assert Path('/tmp/rifai-phase13.txt').read_text(encoding='utf-8').strip().splitlines() == ['12', '65']"
           rifai inspect examples/phase13_direct_ast_to_ir.rif --output /tmp/rifai-phase13.json
-          python -c "import json; p=json.load(open('/tmp/rifai-phase13.json', encoding='utf-8')); s=p['stages']; assert p['success'] and s['ir']['origin'] == 'direct-ast' and s['ir']['stats']['functions'] == 1 and s['ir']['stats']['blocks'] > 0 and s['bytecode']['format_version'] == 5"
+          python -c "import json; p=json.load(open('/tmp/rifai-phase13.json', encoding='utf-8')); s=p['stages']; assert p['success'] and s['ir']['origin'] == 'direct-ast' and s['ir']['stats']['functions'] == 1 and s['ir']['stats']['blocks'] > 0 and s['bytecode']['format_version'] == 6"
           python -c "from pathlib import Path; from rifai import Compiler; p=Path('examples/phase13_direct_ast_to_ir.rif'); r=Compiler(optimize=False).compile(p.read_text(encoding='utf-8')); assert r.is_success and r.ir_origin == 'direct-ast' and r.module.debug_info.source_text == p.read_text(encoding='utf-8')"
 
       - name: Validate Phase 14 advanced IR optimization
@@ -97,7 +97,7 @@ jobs:
           rifai run examples/phase15_language_evolution.rif > /tmp/rifai-phase15.txt
           python -c "from pathlib import Path; assert Path('/tmp/rifai-phase15.txt').read_text(encoding='utf-8').strip().splitlines() == ['Mona', '29', 'true', '150.0', '12', '9.0', 'true', 'Comp']"
           rifai inspect examples/phase15_language_evolution.rif --output /tmp/rifai-phase15.json
-          python -c "import json; p=json.load(open('/tmp/rifai-phase15.json', encoding='utf-8')); assert p['success'] and p['stages']['bytecode']['format_version'] == 5 and p['stages']['ir']['origin'] == 'direct-ast'"
+          python -c "import json; p=json.load(open('/tmp/rifai-phase15.json', encoding='utf-8')); assert p['success'] and p['stages']['bytecode']['format_version'] == 6 and p['stages']['ir']['origin'] == 'direct-ast'"
 
       - name: Validate Phase 16 advanced control flow
         run: |
@@ -105,7 +105,7 @@ jobs:
           rifai run examples/phase16_advanced_control_flow.rif > /tmp/rifai-phase16.txt
           python -c "from pathlib import Path; assert Path('/tmp/rifai-phase16.txt').read_text(encoding='utf-8').strip().splitlines() == ['false', 'true', '1', '13', '9']"
           rifai inspect examples/phase16_advanced_control_flow.rif --output /tmp/rifai-phase16.json
-          python -c "import json; p=json.load(open('/tmp/rifai-phase16.json', encoding='utf-8')); assert p['success'] and p['stages']['ir']['origin'] == 'direct-ast' and p['stages']['bytecode']['format_version'] == 5"
+          python -c "import json; p=json.load(open('/tmp/rifai-phase16.json', encoding='utf-8')); assert p['success'] and p['stages']['ir']['origin'] == 'direct-ast' and p['stages']['bytecode']['format_version'] == 6"
 
       - name: Verify interactive debugger smoke test
         run: |

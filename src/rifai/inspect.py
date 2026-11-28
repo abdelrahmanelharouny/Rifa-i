@@ -215,6 +215,7 @@ def inspect_source(
     }
     if compilation.ir_module is not None:
         result["stages"]["ir"] = compilation.ir_module.as_dict()
+        result["stages"]["ir"]["origin"] = compilation.ir_origin
     if compilation.ir_stats is not None:
         result["stages"]["ir_pipeline"] = _safe(compilation.ir_stats)
     if compilation.ir_analysis is not None:

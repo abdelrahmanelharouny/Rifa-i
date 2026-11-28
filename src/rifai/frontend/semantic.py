@@ -119,7 +119,7 @@ class SemanticAnalyzer:
     def __init__(self) -> None:
         self._symbol_table = SymbolTable()
         self._diagnostics: list[Diagnostic] = []
-        self._expression_types: dict[int, RifaiType] = {}
+        self._expression_types: dict[int, StaticType] = {}
         self._variable_bindings: dict[int, VariableSymbol] = {}
         self._function_bindings: dict[int, FunctionSymbol] = {}
         self._current_function: FunctionSymbol | None = None
@@ -196,6 +196,9 @@ class SemanticAnalyzer:
                     self._error(SourceSpan.from_token(declaration.name_token),
                                 f"Duplicate or reserved type name '{name}'.")
                     continue
+                if not declaration.fields:
+                    self._error(declaration.span, f"Struct '{name}' must declare at least one field.")
+                    continue
                 seen: set[str] = set()
                 for item in declaration.fields:
                     if item.name in seen:
@@ -206,7 +209,7 @@ class SemanticAnalyzer:
                 self._nominal_types[name] = UserDefinedType(name, "struct")
             elif isinstance(declaration, EnumDeclaration):
                 name = declaration.name
-                if name in self._nominal_types or type_from_name(name) is not None:
+                if name in self._nominal_types or type_from_name(name) is not None or name in _BUILTIN_FUNCTIONS:
                     self._error(SourceSpan.from_token(declaration.name_token),
                                 f"Duplicate or reserved type name '{name}'.")
                     continue

@@ -685,9 +685,14 @@ class VirtualMachine:
                                 try:
                                     if target_path.stat().st_size > self.max_file_bytes:
                                         raise fault(f"File exceeds the configured read limit ({self.max_file_bytes} bytes).", instruction)
-                                    value = target_path.read_text(encoding="utf-8")
-                                    if len(value.encode("utf-8")) > self.max_file_bytes:
+                                    with target_path.open("rb") as handle:
+                                        payload = handle.read(self.max_file_bytes + 1)
+                                    if len(payload) > self.max_file_bytes:
                                         raise fault(f"File exceeds the configured read limit ({self.max_file_bytes} bytes).", instruction)
+                                    try:
+                                        value = payload.decode("utf-8")
+                                    except UnicodeDecodeError:
+                                        raise fault("File is not valid UTF-8 text.", instruction) from None
                                 except UnicodeDecodeError:
                                     raise fault("File is not valid UTF-8 text.", instruction) from None
                                 except OSError as exc:

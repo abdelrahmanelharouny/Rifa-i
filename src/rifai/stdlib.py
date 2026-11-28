@@ -20,5 +20,5 @@ BUILTIN_ARITIES: dict[str, int] = {
     "file_exists": 1,
 }
 
-BUILTIN_FUNCTIONS = frozenset(BUILTIN_ARITIES)
+BUILTIN_FUNCTIONS = frozenset(BUILTIN_ARITIES) | frozenset({"len", "push", "pop"})
 FILE_IO_FUNCTIONS = frozenset({"read_text", "write_text", "file_exists"})

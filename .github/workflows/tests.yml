@@ -91,6 +91,14 @@ jobs:
           python -c "import json; p=json.load(open('/tmp/rifai-phase14.json', encoding='utf-8')); assert p['success'] and p['stages']['ir']['origin'] == 'direct-ast' and p['stages']['ir_pipeline']['passes'][-1] == 'side-effect-analysis'"
           python -c "from pathlib import Path; from rifai import Compiler; p=Path('examples/phase14_advanced_ir_optimization.rif'); r=Compiler(optimize=False, ir_optimize=True).compile(p.read_text(encoding='utf-8')); s=r.ir_stats; assert r.is_success and s.global_cse_eliminated > 0 and s.loop_invariants_hoisted > 0"
 
+      - name: Validate Phase 15 language evolution
+        run: |
+          rifai check examples/phase15_language_evolution.rif
+          rifai run examples/phase15_language_evolution.rif > /tmp/rifai-phase15.txt
+          python -c "from pathlib import Path; assert Path('/tmp/rifai-phase15.txt').read_text(encoding='utf-8').strip().splitlines() == ['Mona', '29', 'true', '150.0', '12', '9.0', 'true', 'Comp']"
+          rifai inspect examples/phase15_language_evolution.rif --output /tmp/rifai-phase15.json
+          python -c "import json; p=json.load(open('/tmp/rifai-phase15.json', encoding='utf-8')); assert p['success'] and p['stages']['bytecode']['format_version'] == 5 and p['stages']['ir']['origin'] == 'direct-ast'"
+
       - name: Verify interactive debugger smoke test
         run: |
           printf '%s\n' continue continue | rifai debug examples/phase7_debugger.rif --breakpoint 4 > /tmp/rifai-debug.txt

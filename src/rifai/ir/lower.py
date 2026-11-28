@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from rifai.bytecode.chunk import BytecodeFunction, CodeChunk
 from rifai.bytecode.instructions import Instruction, Opcode
-from rifai.bytecode.module import BytecodeModule
+from rifai.bytecode.module import BytecodeModule, NOMINAL_TYPES_FORMAT_VERSION
 from rifai.bytecode.verifier import BytecodeVerifier
 from rifai.ir.model import IRBranch, IRFunction, IRHalt, IRJump, IRModule, IROperation, IRReturn
 from rifai.ir.verifier import IRVerifier
@@ -22,11 +22,15 @@ class IRToBytecode:
                 "Cannot lower invalid IR: " + "; ".join(ir_validation.diagnostics[:3])
             )
 
-        main = self._lower_function_selected(module.main, module.requires_materialized_values)
+        materialize = (
+            module.requires_materialized_values
+            or module.format_version >= NOMINAL_TYPES_FORMAT_VERSION
+        )
+        main = self._lower_function_selected(module.main, materialize)
         functions = tuple(
             BytecodeFunction(
                 name=function.name,
-                chunk=self._lower_function_selected(function, module.requires_materialized_values),
+                chunk=self._lower_function_selected(function, materialize),
                 parameter_types=function.parameter_types,
                 return_type=function.return_type,
             )

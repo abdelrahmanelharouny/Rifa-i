@@ -41,7 +41,7 @@ def _rewrite_terminator(term, aliases: dict[int, int]):
 
 
 class IRCopyPropagationPass:
-    """Replace explicit DUP copies with their original SSA value."""
+    """Replace explicit DUP copies within their defining basic block."""
 
     name = "ir-copy-propagation"
 
@@ -49,21 +49,26 @@ class IRCopyPropagationPass:
         changed = 0
         functions = []
         for function in (module.main, *module.functions):
-            aliases: dict[int, int] = {}
             blocks = []
             for block in function.blocks:
+                # A DUP result can be aliased only inside this block. Values
+                # crossing a CFG edge must go through the target's block
+                # parameters; carrying this map into sibling blocks could
+                # violate dominance.
+                aliases: dict[int, int] = {}
                 operations = []
                 for operation in block.operations:
                     inputs = tuple(_resolve(item, aliases) for item in operation.inputs)
+                    candidate = replace(operation, inputs=inputs)
                     if (
-                        operation.opcode.value == "DUP"
-                        and len(operation.outputs) == 1
+                        candidate.opcode.value == "DUP"
+                        and len(candidate.outputs) == 1
                         and len(inputs) == 1
                     ):
-                        aliases[operation.outputs[0].value_id] = inputs[0]
+                        aliases[candidate.outputs[0].value_id] = inputs[0]
                         changed += 1
                         continue
-                    operations.append(replace(operation, inputs=inputs))
+                    operations.append(candidate)
                 blocks.append(
                     replace(
                         block,
@@ -71,26 +76,8 @@ class IRCopyPropagationPass:
                         terminator=_rewrite_terminator(block.terminator, aliases),
                     )
                 )
-            if aliases:
-                rewritten = []
-                for block in blocks:
-                    rewritten.append(
-                        replace(
-                            block,
-                            operations=tuple(
-                                replace(
-                                    operation,
-                                    inputs=tuple(_resolve(item, aliases) for item in operation.inputs),
-                                )
-                                for operation in block.operations
-                            ),
-                            terminator=_rewrite_terminator(block.terminator, aliases),
-                        )
-                    )
-                blocks = rewritten
             functions.append(replace(function, blocks=tuple(blocks)))
         return replace(module, main=functions[0], functions=tuple(functions[1:])), changed
-
 
 class IRDeadCodeEliminationPass:
     """Remove unused total/pure operations while retaining every observable fault."""

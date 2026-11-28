@@ -858,7 +858,11 @@ class Parser:
                     enum_object = expression.object
                     expression = EnumConstructorExpression(
                         enum_name=enum_object.name,
-                        enum_token=enum_object.name_token,
+                        enum_token=(
+                            enum_object.name_token
+                            if isinstance(enum_object, TypeApplicationExpression)
+                            else enum_object.token
+                        ),
                         variant_name=expression.name,
                         variant_token=expression.name_token,
                         arguments=arguments,

@@ -80,7 +80,7 @@ print(describe(none));
 print(add<int>(4, 6));
 print(add("ri", "fai"));
 print(equal(some, some));
-print(identity<int[]>([])[0]);
+print(to_string(len(identity<int[]>([]))));
 """
 
 

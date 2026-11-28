@@ -86,7 +86,7 @@ def type_from_name(name: str) -> RifaiType | ArrayType | None:
 
 def type_name(value: StaticType) -> str:
     """Return the stable bytecode/debug name for a static type."""
-    return value.value if isinstance(value, RifaiType) else value.name
+    return value.value
 
 
 def array_element_type(rifai_type: StaticType) -> StaticType | None:

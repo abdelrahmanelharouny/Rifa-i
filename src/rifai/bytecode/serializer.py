@@ -18,6 +18,7 @@ from rifai.bytecode.module import (
     COLLECTIONS_FORMAT_VERSION,
     NOMINAL_TYPES_FORMAT_VERSION,
     ALGEBRAIC_TYPES_FORMAT_VERSION,
+    GENERIC_TYPES_FORMAT_VERSION,
     DEBUG_INFO_FORMAT_VERSION,
     FORMAT_VERSION,
     FUNCTIONS_FORMAT_VERSION,
@@ -186,7 +187,9 @@ def _function_from_json(raw: object) -> BytecodeFunction:
 
 
 def _valid_debug_type_name(value: str, *, allow_nominal: bool) -> bool:
-    if value in {"int", "float", "bool", "string", "int[]", "float[]", "bool[]", "string[]"}:
+    if value.endswith("[]"):
+        return _valid_debug_type_name(value[:-2], allow_nominal=allow_nominal)
+    if value in {"int", "float", "bool", "string"}:
         return True
     return (
         allow_nominal
@@ -311,11 +314,12 @@ class BytecodeSerializer:
             LEGACY_FORMAT_VERSION, FUNCTIONS_FORMAT_VERSION,
             DEBUG_INFO_FORMAT_VERSION, COLLECTIONS_FORMAT_VERSION,
             NOMINAL_TYPES_FORMAT_VERSION,
-            ALGEBRAIC_TYPES_FORMAT_VERSION
+            ALGEBRAIC_TYPES_FORMAT_VERSION,
+            GENERIC_TYPES_FORMAT_VERSION,
         ):
             raise BytecodeFormatError(
                 f"Cannot write bytecode version {module.format_version}; "
-                "supported versions are 1, 2, 3, 4, 5, and 6."
+                "supported versions are 1 through 7."
             )
         if module.format_version < FUNCTIONS_FORMAT_VERSION and module.functions:
             raise BytecodeFormatError("Version 1 bytecode cannot contain function chunks.")
@@ -383,10 +387,11 @@ class BytecodeSerializer:
             LEGACY_FORMAT_VERSION, FUNCTIONS_FORMAT_VERSION,
             DEBUG_INFO_FORMAT_VERSION, COLLECTIONS_FORMAT_VERSION,
             NOMINAL_TYPES_FORMAT_VERSION,
-            ALGEBRAIC_TYPES_FORMAT_VERSION
+            ALGEBRAIC_TYPES_FORMAT_VERSION,
+            GENERIC_TYPES_FORMAT_VERSION,
         ):
             raise BytecodeFormatError(
-                f"Unsupported bytecode version {version!r}; supported versions are 1, 2, 3, 4, 5, and 6."
+                f"Unsupported bytecode version {version!r}; supported versions are 1 through 7."
             )
 
         expected_fields = {"magic", "format_version", "source_name", "constants", "main"}

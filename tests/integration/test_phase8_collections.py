@@ -13,7 +13,7 @@ def test_run_command_compiles_and_executes_typed_arrays(tmp_path, capsys) -> Non
     assert capsys.readouterr().out.strip() == "30"
 
 
-def test_compile_command_emits_bytecode_v6_with_collections(tmp_path, capsys) -> None:
+def test_compile_command_emits_bytecode_v7_with_collections(tmp_path, capsys) -> None:
     import json
     from rifai.bytecode import BytecodeSerializer
 
@@ -22,6 +22,6 @@ def test_compile_command_emits_bytecode_v6_with_collections(tmp_path, capsys) ->
     assert main(["compile", str(source)]) == 0
     capsys.readouterr()
     module = BytecodeSerializer.read(source.with_suffix(".rbc"))
-    assert module.format_version == 6
+    assert module.format_version == 7
     assert any(instruction.opcode.value == "ARRAY_NEW_INT" for instruction in module.main.instructions)
     assert any(instruction.opcode.value == "LENGTH" for instruction in module.main.instructions)

@@ -210,6 +210,11 @@ class IRPassStats:
     branches_simplified: int = 0
     blocks_removed: int = 0
     block_parameter_constants: int = 0
+    dead_operations_removed: int = 0
+    copy_propagations: int = 0
+    global_cse_eliminated: int = 0
+    loop_invariants_hoisted: int = 0
+    side_effecting_operations: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -409,46 +414,95 @@ class IRValueNumberingPass:
 
     @staticmethod
     def _run_function(function: IRFunction) -> IRFunction:
+        # Assign every definition before rewriting any use. Cross-block
+        # dominating definitions are legal after Phase 14, so a one-pass
+        # use-as-you-go renumbering would fail when a consumer is laid out
+        # before its dominating producer.
+        ordered = tuple(sorted(
+            function.blocks,
+            key=lambda item: (item.source_start, item.block_id),
+        ))
         mapping: dict[int, int] = {}
         next_id = 0
-        blocks = []
-        for block in sorted(function.blocks, key=lambda item: item.source_start):
-            parameters = []
+        for block in ordered:
             for value in block.parameters:
                 mapping[value.value_id] = next_id
-                parameters.append(IRValue(next_id, value.type_name))
                 next_id += 1
-            operations = []
             for operation in block.operations:
-                inputs = tuple(mapping[value_id] for value_id in operation.inputs)
-                outputs = []
                 for value in operation.outputs:
                     mapping[value.value_id] = next_id
-                    outputs.append(IRValue(next_id, value.type_name))
                     next_id += 1
-                operations.append(replace(operation, inputs=inputs, outputs=tuple(outputs)))
+
+        def mapped(value_id: int) -> int:
+            try:
+                return mapping[value_id]
+            except KeyError as exc:
+                raise ValueError(
+                    f"Cannot canonicalize undefined IR value %{value_id}."
+                ) from exc
+
+        blocks = []
+        for block in function.blocks:
+            parameters = tuple(
+                IRValue(mapped(value.value_id), value.type_name)
+                for value in block.parameters
+            )
+            operations = tuple(
+                replace(
+                    operation,
+                    inputs=tuple(mapped(value_id) for value_id in operation.inputs),
+                    outputs=tuple(
+                        IRValue(mapped(value.value_id), value.type_name)
+                        for value in operation.outputs
+                    ),
+                )
+                for operation in block.operations
+            )
             term = block.terminator
             if isinstance(term, IRJump):
-                term = replace(term, arguments=tuple(mapping[value_id] for value_id in term.arguments))
+                term = replace(
+                    term,
+                    arguments=tuple(mapped(value_id) for value_id in term.arguments),
+                )
             elif isinstance(term, IRBranch):
-                term = replace(term, condition=mapping[term.condition],
-                               false_arguments=tuple(mapping[value_id] for value_id in term.false_arguments),
-                               true_arguments=tuple(mapping[value_id] for value_id in term.true_arguments))
+                term = replace(
+                    term,
+                    condition=mapped(term.condition),
+                    false_arguments=tuple(mapped(value_id) for value_id in term.false_arguments),
+                    true_arguments=tuple(mapped(value_id) for value_id in term.true_arguments),
+                )
             elif isinstance(term, IRReturn) and term.value is not None:
-                term = replace(term, value=mapping[term.value])
-            blocks.append(replace(block, parameters=tuple(parameters), operations=tuple(operations),
-                                  terminator=term))
+                term = replace(term, value=mapped(term.value))
+            blocks.append(replace(
+                block,
+                parameters=parameters,
+                operations=operations,
+                terminator=term,
+            ))
         return replace(function, blocks=tuple(blocks))
 
 
 class IRPassManager:
-    """Verify, optimize, canonicalize, and analyze IR in a deterministic order."""
+    """Verify, optimize, canonicalize, and analyze IR to a bounded fixed point."""
 
     def __init__(self) -> None:
+        from rifai.ir.advanced_passes import (
+            IRCopyPropagationPass,
+            IRDeadCodeEliminationPass,
+            IRGlobalCommonSubexpressionEliminationPass,
+            IRLoopInvariantCodeMotionPass,
+        )
+        from rifai.ir.effects import IRSideEffectAnalysis
+
         self.verifier = IRVerifier()
         self.constants = IRConstantPropagationPass()
         self.branches = IRBranchSimplificationPass()
         self.unreachable = IRUnreachableBlockEliminationPass()
+        self.copy = IRCopyPropagationPass()
+        self.dce = IRDeadCodeEliminationPass()
+        self.global_cse = IRGlobalCommonSubexpressionEliminationPass()
+        self.licm = IRLoopInvariantCodeMotionPass()
+        self.effects = IRSideEffectAnalysis()
         self.numbering = IRValueNumberingPass()
         self.analyzer = IRAnalyzer()
 
@@ -458,44 +512,78 @@ class IRPassManager:
             raise ValueError("IR verification failed: " + "; ".join(initial.diagnostics[:5]))
         optimized = module
         constant_folds = branches_simplified = blocks_removed = parameter_constants = 0
+        dead_removed = copies = cse_removed = hoisted = 0
         if optimize:
-            limit = module.block_count + module.operation_count + 2
+            limit = module.block_count + module.operation_count + 4
             for _ in range(max(1, limit)):
+                before = optimized
+                optimized, copy_count = self.copy.run(optimized)
                 optimized, folds, propagated = self.constants.run(optimized)
                 optimized, branches = self.branches.run(optimized)
-                optimized, removed = self.unreachable.run(optimized)
+                optimized, unreachable = self.unreachable.run(optimized)
+                optimized, moved = self.licm.run(optimized)
+                optimized, common = self.global_cse.run(optimized)
+                optimized, dead = self.dce.run(optimized)
+
+                copies += copy_count
                 constant_folds += folds
                 branches_simplified += branches
-                blocks_removed += removed
+                blocks_removed += unreachable
+                hoisted += moved
+                cse_removed += common
+                dead_removed += dead
                 parameter_constants = max(parameter_constants, propagated)
-                if not folds and not branches and not removed:
+                if optimized == before:
                     break
 
         normalized, renumbered = self.numbering.run(optimized)
         final = self.verifier.verify(normalized)
         if not final.is_valid:
-            raise RuntimeError("IR optimization pipeline produced invalid IR: "
-                               + "; ".join(final.diagnostics[:5]))
+            raise RuntimeError(
+                "IR optimization pipeline produced invalid IR: "
+                + "; ".join(final.diagnostics[:5])
+            )
         analysis = self.analyzer.analyze(normalized)
+        effects = self.effects.analyze(normalized)
+        active_passes = (
+            "verify-input",
+            self.copy.name,
+            self.constants.name,
+            self.branches.name,
+            self.unreachable.name,
+            self.licm.name,
+            self.global_cse.name,
+            self.dce.name,
+            self.numbering.name,
+            "verify-output",
+            "cfg-dominator-analysis",
+            "side-effect-analysis",
+        )
         stats = IRPassStats(
-            passes=(
-                ("verify-input", self.constants.name, self.branches.name,
-                 self.unreachable.name, self.numbering.name, "verify-output",
-                 "cfg-dominator-analysis")
-                if optimize
-                else ("verify-input", self.numbering.name, "verify-output",
-                      "cfg-dominator-analysis")
+            passes=active_passes if optimize else (
+                "verify-input",
+                self.numbering.name,
+                "verify-output",
+                "cfg-dominator-analysis",
+                "side-effect-analysis",
             ),
             function_count=analysis.function_count,
             block_count=analysis.block_count,
             operation_count=analysis.operation_count,
             value_count=analysis.value_count,
             edge_count=analysis.edge_count,
-            loop_back_edge_count=sum(len(item.loop_back_edges) for item in analysis.functions),
+            loop_back_edge_count=sum(
+                len(item.loop_back_edges) for item in analysis.functions
+            ),
             renumbered_values=renumbered,
             constant_folds=constant_folds,
             branches_simplified=branches_simplified,
             blocks_removed=blocks_removed,
             block_parameter_constants=parameter_constants,
+            dead_operations_removed=dead_removed,
+            copy_propagations=copies,
+            global_cse_eliminated=cse_removed,
+            loop_invariants_hoisted=hoisted,
+            side_effecting_operations=effects.side_effecting_operations,
         )
         return IRPassResult(normalized, analysis, stats)

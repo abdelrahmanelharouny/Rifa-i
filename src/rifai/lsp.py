@@ -13,6 +13,7 @@ from rifai.frontend.ast_nodes import ASTNode, AssignmentStatement, FunctionCallE
 from rifai.frontend.lexer import LexResult, Lexer
 from rifai.frontend.parser import Parser
 from rifai.frontend.semantic import SemanticAnalyzer
+from rifai.frontend.generics import GenericSpecializer
 from rifai.frontend.symbol_table import FunctionSymbol, VariableSymbol
 from rifai.frontend.tokens import Token, TokenType
 
@@ -63,8 +64,11 @@ def _analyze(source: str) -> Analysis:
     parsed = Parser(lex.tokens).parse()
     if parsed.has_errors:
         return Analysis(source, lex, parsed.program, None, parsed.diagnostics)
-    semantic = SemanticAnalyzer().analyze(parsed.program)
-    return Analysis(source, lex, parsed.program, semantic, semantic.diagnostics)
+    specialized = GenericSpecializer().specialize(parsed.program)
+    if not specialized.is_valid:
+        return Analysis(source, lex, parsed.program, None, specialized.diagnostics)
+    semantic = SemanticAnalyzer().analyze(specialized.program)
+    return Analysis(source, lex, specialized.program, semantic, semantic.diagnostics)
 
 
 def _walk(node: ASTNode):

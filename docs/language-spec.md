@@ -1,6 +1,6 @@
-# Rifa'i Language Specification (Version 3.3 — Phase 18)
+# Rifa'i Language Specification (Version 4.0 — Phase 19)
 
-Rifa'i (.rif) is a statically typed, block-structured language compiled into portable stack bytecode (.rbc) and executed by the Rifa'i VM. The language includes relative source modules, nominal records and algebraic enums, exhaustive matching, inferred local variables, generic functions with compile-time type inference, and capability-controlled text file I/O.
+Rifa'i (.rif) is a statically typed, block-structured language compiled into portable stack bytecode (.rbc) and executed by the Rifa'i VM. The language includes relative source modules, nominal records and algebraic enums, exhaustive matching, inferred local variables, bounded generics, generic structs and enums, recursive homogeneous arrays, and capability-controlled text file I/O.
 
 ## 1. Lexical structure
 
@@ -12,7 +12,7 @@ Integer literals contain decimal digits; floats have digits on both sides of a d
 
 ## 2. Types and declarations
 
-Primitive types are int, float, bool, and string. void is valid only as a function return type. Homogeneous one-dimensional arrays are available for primitive element types: int[], float[], bool[], and string[].
+Primitive types are int, float, bool, and string. void is valid only as a function return type. A concrete value type may be a primitive, a declared struct, a declared enum, or an array of another concrete value type. Homogeneous arrays support any such non-void element type and may be nested: int[], Point[], Box<int>[], int[][], and Box<string>[][] are valid examples.
 
 Local declarations may be explicitly annotated or inferred from a non-void initializer:
 
@@ -96,34 +96,71 @@ Import compilation requires a real source-file path. Calling Compiler.compile() 
 
 ## 4. Functions, scopes, and control flow
 
-### Generic functions
+### Generic functions, explicit type arguments, and bounds
 
-Functions may declare one or more type parameters immediately after their name. The compiler infers each type argument from the call's actual arguments:
+Functions may declare one or more type parameters. A type parameter can have one or more built-in capability bounds, joined with `+`:
 
 ~~~rif
 fn identity<T>(value: T) -> T {
     return value;
 }
 
-fn first<T>(items: T[]) -> T {
+fn add<T: Addable>(left: T, right: T) -> T {
+    return left + right;
+}
+
+fn first<T: ArrayElement>(items: T[]) -> T {
     return items[0];
 }
 
-fn choose<T>(left: T, right: T) -> T {
-    if (true) { return left; }
-    return right;
-}
-
-let number = identity(42);
-let greeting = identity("hello");
+let number = identity(42);          // inferred type argument
+let greeting = identity<string>("hello"); // explicit type argument
+let total = add(4, 5);
 let head = first([10, 20, 30]);
 ~~~
 
-A type parameter can represent a primitive type, an existing typed array value, a struct, or an enum. In a parameter annotation, `T[]` means an array of the inferred primitive element type, such as `int[]`. Multiple parameters may use the same type variable; all corresponding arguments must infer the same concrete type. Separate calls may produce separate instances, while calls with the same type arguments reuse one instance.
+Type arguments are normally inferred by unifying the declared parameter types with actual argument types. Multiple parameters using the same type variable must agree. Explicit type arguments are accepted at call sites as `function<T, U>(...)`; they are useful when an argument does not provide enough information, such as an empty array. Every type argument must resolve to a known, non-void concrete type. Generic parameters still need to appear in a parameter type, so type variables that cannot be inferred from a call are rejected at declaration time.
 
-Generic type parameters must appear in at least one parameter type so that a call can infer them. An empty array literal carries no element type and therefore cannot infer `T`; pass a typed array variable or a non-empty array literal. Generic parameters are not explicit call-site type arguments: this phase uses inference from arguments. Generic structs, generic enums, and user-defined type bounds are not part of this phase.
+The supported built-in bounds are:
 
-The compiler performs compile-time monomorphization before ordinary semantic analysis. Each inferred type tuple creates a deterministic concrete function instance. That instance is checked using the normal static type rules and then lowered through the regular IR and bytecode pipeline. There is no generic runtime dispatch, erased type representation, or additional VM instruction cost. Operations in a generic body are validated for every concrete instantiation; for example, arithmetic on `T` is accepted only when the inferred concrete type supports that operator.
+| Bound | Types that satisfy it |
+|---|---|
+| `Numeric` | `int`, `float` |
+| `Integral` | `int` |
+| `Addable` | `int`, `float`, `string` |
+| `Comparable`, `Ordered` | `int`, `float` |
+| `Equatable` | `int`, `float`, `bool`, `string`, enums |
+| `Display`, `Printable` | Any concrete non-void value type |
+| `ArrayElement` | Any concrete non-void value type |
+| `Copy` | Primitive scalar types and enums |
+
+For example, `T: Numeric + Comparable` requires the type argument to satisfy both capabilities. Unknown bounds and unsatisfied constraints are compile-time errors. Bounds are checked before each concrete specialization; the ordinary semantic analyzer then checks every operation in the specialized body. The built-in capability set is fixed in this version; user-declared traits and implementations are not supported.
+
+### Generic structs and enums
+
+Structs and enums may declare type parameters with the same bound syntax:
+
+~~~rif
+struct Box<T: Display> {
+    value: T,
+}
+
+enum Option<T: Display> {
+    Some(T),
+    None,
+}
+
+let inferred = Box(42);                    // infer T = int
+let explicit: Box<string> = Box<string>("hello");
+let some: Option<int> = Option<int>.Some(7);
+let none: Option<string> = Option<string>.None;
+~~~
+
+Struct constructor arguments and enum payloads can infer type arguments. Explicit type arguments are required for generic unit variants because they carry no payload from which to infer the type. Generic nominal types can appear inside other generic types, function signatures, arrays, and nested arrays. Each concrete type-argument tuple produces one deterministic nominal declaration that the rest of the compiler treats as an ordinary struct or enum. Generic declarations themselves are removed before semantic analysis.
+
+### Monomorphization
+
+Generic functions and nominal types are specialized at compile time before ordinary semantic analysis. Specializations are deterministic and cached by their concrete type arguments, including recursive and nested generic references. The generated declarations are checked using the normal static type rules and then lowered through the regular IR and bytecode pipeline. Generic runtime dispatch, erased type representations, and runtime type-argument metadata are not used.
 
 Functions are top-level declarations:
 
@@ -181,13 +218,15 @@ The CLI and debuggers grant this capability only within the launched program's p
 
 ## 7. Arrays
 
-Arrays are homogeneous, one-dimensional reference values. Non-empty literals infer their element type; empty literals need an explicit type annotation. Indexes are zero-based integers. Reads and writes outside the valid range trap. Arrays can be passed to and returned from functions, and assignments create aliases rather than copies. The VM enforces element types, bounds, and the configurable item-count limit.
+Arrays are homogeneous, mutable reference values. A non-empty literal infers the common element type; all elements must match exactly. Empty literals need an explicit surrounding array type, such as `let rows: int[][] = [[], []];`. Indexes are zero-based integers. Reads and writes outside the valid range trap. Arrays can be passed to and returned from functions, and assignment creates aliases rather than copies. The VM enforces element types recursively, bounds, and the configurable item-count limit.
+
+Array element types may be primitive values, structs, enums, or other arrays. Examples include `Point[]`, `Box<int>[]`, `int[][]`, and `Option<string>[][]`. The built-ins `len`, `push`, and `pop` work with arrays at any supported nesting level; `push` requires an element matching the array's immediate element type.
 
 ## 8. Bytecode compatibility
 
-Generic functions are specialized into ordinary concrete function declarations before IR generation. They introduce no new bytecode opcodes or format version; generated code uses the existing verified bytecode v6 contract.
+Generic functions, structs, and enums are specialized into ordinary concrete declarations before IR generation. Type constraints are compile-time checks and add no runtime dispatch. Primitive one-dimensional arrays continue to use their existing typed constructor opcodes. Bytecode v7 adds `ARRAY_NEW_TYPED` for nested arrays and arrays containing nominal values, and expands valid function/debug type names to recursive array types.
 
-Bytecode v5 introduced STRUCT_NEW, FIELD_GET, FIELD_SET, and unit ENUM_NEW. Bytecode v6 adds ENUM_NEW_PAYLOAD, ENUM_IS, and ENUM_GET for algebraic enum construction and match expressions. The serializer and verifier accept bytecode versions 1–6; versions 1–5 remain readable and executable. Version 6 is required only for enum payload and matching instructions. The compiler lowers matches to explicit IR control-flow blocks and verifies the result before execution.
+Bytecode v5 introduced `STRUCT_NEW`, `FIELD_GET`, `FIELD_SET`, and unit `ENUM_NEW`. Bytecode v6 adds `ENUM_NEW_PAYLOAD`, `ENUM_IS`, and `ENUM_GET` for algebraic enum construction and matching. Bytecode v7 adds generic typed-array construction. The serializer and verifier accept versions 1–7; versions 1–6 remain readable and executable. `ARRAY_NEW_TYPED` is rejected in versions 1–6. The compiler emits v7 modules by default.
 
 ## 9. Evaluation order and runtime limits
 

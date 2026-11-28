@@ -326,6 +326,16 @@ def _run_debug_command(
         debug_symbols=debug_symbols,
         source_name=debug_source_name,
         breakpoints=breakpoints,
+        vm=VirtualMachine(
+            allow_file_io=True,
+            file_root=(
+                file_path.resolve().parent
+                if file_path.suffix.lower() == ".rif"
+                else Path(module.source_name).resolve().parent
+                if module.source_name
+                else file_path.resolve().parent
+            ),
+        ),
     )
     try:
         outcome = debugger.run()

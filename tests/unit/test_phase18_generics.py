@@ -91,10 +91,14 @@ def test_nested_generic_calls_share_cached_specializations_and_allow_recursion()
 fn identity<T>(value: T) -> T { return identity_inner(value); }
 fn identity_inner<T>(value: T) -> T { return value; }
 fn relay<T>(value: T) -> T { return identity(value); }
+fn recurse<T>(value: T) -> T {
+    if (true) { return value; } else { return recurse(value); }
+}
 print(to_string(relay(31)));
+print(to_string(recurse(11)));
 """
     result = _compile(source)
-    assert VirtualMachine().execute(result.module).output == ("31",)
+    assert VirtualMachine().execute(result.module).output == ("31", "11")
     names = [function.name for function in result.module.functions]
     assert sum(name.startswith("__rifai_generic_identity_") for name in names) == 1
     assert sum(name.startswith("__rifai_generic_identity_inner_") for name in names) == 1
@@ -104,7 +108,7 @@ print(to_string(relay(31)));
     ("source", "message"),
     [
         (
-            "fn same<T>(left: T, right: T) -> T { return left; } let x = same(1, \\"x\\");",
+            "fn same<T>(left: T, right: T) -> T { return left; } let x = same(1, \"x\");",
             "Conflicting inferences for 'T'",
         ),
         (

@@ -16,6 +16,7 @@ from rifai.frontend.ast_nodes import EnumDeclaration, ImportDeclaration, MemberA
 from rifai.frontend.lexer import Lexer
 from rifai.frontend.parser import Parser
 from rifai.frontend.semantic import SemanticAnalyzer
+from rifai.ir import BytecodeToIR, IRToBytecode, IRVerifier
 from rifai.vm import EnumValue, StructValue, VMRuntimeError, VirtualMachine
 
 
@@ -293,6 +294,24 @@ print(point.x + point.y);
     restored_v4 = BytecodeSerializer.from_bytes(encoded)
     assert restored_v4.format_version == 4
     assert VirtualMachine().execute(restored_v4).output == ()
+
+
+def test_v5_bytecode_can_be_lifted_to_ir_and_lowered_again():
+    source = """enum Status { Ready, Locked }
+struct User { name: string, age: int, status: Status }
+let user = User("Ada", 36, Status.Ready);
+user.age = user.age + abs(-1);
+print(user.name);
+print(user.age);
+print(user.status == Status.Ready);
+"""
+    compiled = _compile(source)
+    lifted = BytecodeToIR().build(compiled.module)
+    assert IRVerifier().verify(lifted).is_valid
+
+    lowered = IRToBytecode().lower(lifted)
+    assert lowered.format_version == 5
+    assert VirtualMachine().execute(lowered).output == ("Ada", "37", "true")
 
 
 def test_compiler_rejects_nominal_opcodes_in_legacy_bytecode_versions():

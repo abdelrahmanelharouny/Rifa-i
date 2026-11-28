@@ -200,6 +200,17 @@ class Compiler:
                     ))
                     continue
                 try:
+                    candidate_size = candidate.stat().st_size
+                    if candidate_size > max_source_chars or total_chars + candidate_size > max_source_chars:
+                        diagnostics.append(Diagnostic(
+                            phase=DiagnosticPhase.PARSER,
+                            message=f"Combined module source exceeds the limit ({max_source_chars} characters).",
+                            line=declaration.span.line,
+                            column=declaration.span.column,
+                            start_offset=declaration.span.start_offset,
+                            end_offset=declaration.span.end_offset,
+                        ))
+                        continue
                     imported_source = candidate.read_text(encoding="utf-8")
                 except (OSError, UnicodeDecodeError) as exc:
                     diagnostics.append(Diagnostic(
@@ -262,6 +273,11 @@ class Compiler:
         combined_program = replace(
             program,
             declarations=tuple(flattened),
+            span=(
+                SourceSpan.between(flattened[0].span, flattened[-1].span)
+                if flattened
+                else program.span
+            ),
         )
         return combined_program, combined_source, ()
 

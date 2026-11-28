@@ -15,6 +15,7 @@ from rifai.bytecode.module import (
     BytecodeDebugLocal,
     BytecodeModule,
     COLLECTIONS_FORMAT_VERSION,
+    NOMINAL_TYPES_FORMAT_VERSION,
     DEBUG_INFO_FORMAT_VERSION,
     FORMAT_VERSION,
     FUNCTIONS_FORMAT_VERSION,
@@ -281,11 +282,12 @@ class BytecodeSerializer:
             raise TypeError("module must be a BytecodeModule.")
         if type(module.format_version) is not int or module.format_version not in (
             LEGACY_FORMAT_VERSION, FUNCTIONS_FORMAT_VERSION,
-            DEBUG_INFO_FORMAT_VERSION, COLLECTIONS_FORMAT_VERSION
+            DEBUG_INFO_FORMAT_VERSION, COLLECTIONS_FORMAT_VERSION,
+            NOMINAL_TYPES_FORMAT_VERSION
         ):
             raise BytecodeFormatError(
                 f"Cannot write bytecode version {module.format_version}; "
-                "supported versions are 1, 2, 3, and 4."
+                "supported versions are 1, 2, 3, 4, and 5."
             )
         if module.format_version < FUNCTIONS_FORMAT_VERSION and module.functions:
             raise BytecodeFormatError("Version 1 bytecode cannot contain function chunks.")

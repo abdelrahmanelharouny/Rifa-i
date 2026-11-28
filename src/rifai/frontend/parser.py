@@ -298,7 +298,15 @@ class Parser:
             self._advance()
             end: Token | SourceSpan = token
             name = token.lexeme
-            if self._match(TokenType.LEFT_BRACKET) is not None:
+            if (
+                token.token_type in {
+                    TokenType.TYPE_INT,
+                    TokenType.TYPE_FLOAT,
+                    TokenType.TYPE_BOOL,
+                    TokenType.TYPE_STRING,
+                }
+                and self._match(TokenType.LEFT_BRACKET) is not None
+            ):
                 close = self._consume(
                     TokenType.RIGHT_BRACKET,
                     "Expected ']' after array type brackets.",

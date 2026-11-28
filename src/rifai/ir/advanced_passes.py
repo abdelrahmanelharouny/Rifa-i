@@ -163,7 +163,17 @@ class IRDeadCodeEliminationPass:
                 removed += len(block.operations) - len(operations)
                 blocks.append(replace(block, operations=operations))
             functions.append(replace(function, blocks=tuple(blocks)))
-        return replace(module, main=functions[0], functions=tuple(functions[1:])), removed
+        return (
+            replace(
+                module,
+                main=functions[0],
+                functions=tuple(functions[1:]),
+                requires_materialized_values=(
+                    module.requires_materialized_values or removed > 0
+                ),
+            ),
+            removed,
+        )
 
 
 class IRGlobalCommonSubexpressionEliminationPass:

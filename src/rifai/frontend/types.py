@@ -34,7 +34,18 @@ class UserDefinedType:
         return self.name
 
 
-StaticType: TypeAlias = RifaiType | UserDefinedType
+@dataclass(frozen=True, slots=True)
+class ArrayType:
+    """A homogeneous array whose element may be any statically valid value type."""
+
+    element_type: StaticType
+
+    @property
+    def value(self) -> str:
+        return type_name(self.element_type) + "[]"
+
+
+StaticType: TypeAlias = RifaiType | UserDefinedType | ArrayType
 
 
 _NAMED_TYPES: Final[dict[str, RifaiType]] = {
@@ -60,9 +71,17 @@ _ELEMENT_ARRAY_TYPES: Final[dict[RifaiType, RifaiType]] = {
 }
 
 
-def type_from_name(name: str) -> RifaiType | None:
-    """Resolve a primitive or typed-array textual annotation."""
-    return _NAMED_TYPES.get(name)
+def type_from_name(name: str) -> RifaiType | ArrayType | None:
+    """Resolve a primitive or recursively nested built-in array annotation."""
+    direct = _NAMED_TYPES.get(name)
+    if direct is not None:
+        return direct
+    if name.endswith("[]"):
+        element_name = name[:-2]
+        element = type_from_name(element_name)
+        if element is not None and element is not RifaiType.VOID:
+            return ArrayType(element)
+    return None
 
 
 def type_name(value: StaticType) -> str:
@@ -70,18 +89,24 @@ def type_name(value: StaticType) -> str:
     return value.value if isinstance(value, RifaiType) else value.name
 
 
-def array_element_type(rifai_type: StaticType) -> RifaiType | None:
-    """Return the primitive element type of a one-dimensional array type."""
+def array_element_type(rifai_type: StaticType) -> StaticType | None:
+    """Return an array's immediate element type, including nested/nominal values."""
+    if isinstance(rifai_type, ArrayType):
+        return rifai_type.element_type
     return _ARRAY_ELEMENT_TYPES.get(rifai_type) if isinstance(rifai_type, RifaiType) else None
 
 
-def array_type_for(element_type: StaticType) -> RifaiType | None:
-    """Return the corresponding array type for a primitive element type."""
-    return _ELEMENT_ARRAY_TYPES.get(element_type) if isinstance(element_type, RifaiType) else None
+def array_type_for(element_type: StaticType) -> ArrayType:
+    """Return the corresponding homogeneous array type for any value type."""
+    if element_type is RifaiType.VOID or element_type is RifaiType.ERROR:
+        raise ValueError("Arrays cannot contain void or error values.")
+    return ArrayType(element_type)
 
 
 def is_array_type(rifai_type: StaticType) -> bool:
-    return isinstance(rifai_type, RifaiType) and rifai_type in _ARRAY_ELEMENT_TYPES
+    return isinstance(rifai_type, ArrayType) or (
+        isinstance(rifai_type, RifaiType) and rifai_type in _ARRAY_ELEMENT_TYPES
+    )
 
 
 def is_numeric(rifai_type: StaticType) -> bool:

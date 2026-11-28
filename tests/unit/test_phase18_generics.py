@@ -155,13 +155,15 @@ let answer = add_one("text");
     assert any("Operator '+' is not supported" in item.message for item in result.diagnostics)
 
 
-def test_generic_array_annotation_requires_supported_primitive_array_after_substitution():
+def test_generic_array_annotation_accepts_nominal_array_after_substitution():
     source = """\
 struct Point { x: int }
 fn first<T>(items: T[]) -> T { return items[0]; }
 let points: Point[] = [Point(1)];
 let point = first(points);
+print(to_string(point.x));
 """
     result = Compiler().compile(source)
-    assert not result.is_success
-    assert any("Unknown type 'Point[]'" in item.message for item in result.diagnostics)
+    assert result.is_success, result.diagnostics
+    assert result.module is not None
+    assert VirtualMachine().execute(result.module).output == ("1",)

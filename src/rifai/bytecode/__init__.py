@@ -56,6 +56,7 @@ __all__ = [
     "LEGACY_FORMAT_VERSION",
     "NOMINAL_TYPES_FORMAT_VERSION",
     "ALGEBRAIC_TYPES_FORMAT_VERSION",
+    "GENERIC_TYPES_FORMAT_VERSION",
     "Opcode",
     "OptimizationResult",
     "OptimizationStats",

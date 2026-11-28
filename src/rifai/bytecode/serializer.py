@@ -269,11 +269,11 @@ def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
 
 
 class BytecodeSerializer:
-    """Encode and decode bytecode versions 1 through 4.
+    """Encode and decode bytecode versions 1 through 5.
 
     Version 1 stores a main chunk, version 2 adds function chunks, version 3
-    adds optional embedded debug metadata, and version 4 adds typed-array
-    instructions. Older versions remain readable and executable.
+    adds optional embedded debug metadata, version 4 adds typed arrays, and
+    version 5 adds nominal struct/enum operations. Older versions remain readable.
     """
 
     @staticmethod

@@ -103,6 +103,8 @@ class StructDeclaration(Statement):
     name_token: Token
     fields: tuple[StructField, ...]
     span: SourceSpan
+    type_parameters: tuple[Token, ...] = ()
+    type_parameter_bounds: tuple[tuple[str, ...], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,6 +125,8 @@ class EnumDeclaration(Statement):
     name_token: Token
     variants: tuple[EnumVariant, ...]
     span: SourceSpan
+    type_parameters: tuple[Token, ...] = ()
+    type_parameter_bounds: tuple[tuple[str, ...], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,6 +148,7 @@ class FunctionDeclaration(Statement):
     body: BlockStatement
     span: SourceSpan
     type_parameters: tuple[Token, ...] = ()
+    type_parameter_bounds: tuple[tuple[str, ...], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -307,11 +312,22 @@ class GroupingExpression(Expression):
 
 @dataclass(frozen=True, slots=True)
 class FunctionCallExpression(Expression):
-    """Function invocation expression."""
+    """Function invocation expression, optionally with explicit type arguments."""
 
     callee: str
     callee_token: Token
     arguments: tuple[Expression, ...]
+    span: SourceSpan
+    type_arguments: tuple[TypeAnnotation, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class TypeApplicationExpression(Expression):
+    """A generic nominal type in expression position, before member selection."""
+
+    name: str
+    name_token: Token
+    type_arguments: tuple[TypeAnnotation, ...]
     span: SourceSpan
 
 
@@ -325,6 +341,7 @@ class EnumConstructorExpression(Expression):
     variant_token: Token
     arguments: tuple[Expression, ...]
     span: SourceSpan
+    type_arguments: tuple[TypeAnnotation, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -339,6 +356,7 @@ class MatchArm(ASTNode):
     wildcard: bool
     body: Expression
     span: SourceSpan
+    type_arguments: tuple[TypeAnnotation, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -383,11 +401,13 @@ def _node_label(node: ASTNode) -> str:
     if isinstance(node, ImportDeclaration):
         return f"Import {node.path}"
     if isinstance(node, StructDeclaration):
-        return f"StructDeclaration {node.name}"
+        generic = "<" + ", ".join(item.lexeme for item in node.type_parameters) + ">" if node.type_parameters else ""
+        return f"StructDeclaration {node.name}{generic}"
     if isinstance(node, StructField):
         return f"StructField {node.name}: {node.type_annotation.name}"
     if isinstance(node, EnumDeclaration):
-        return f"EnumDeclaration {node.name}"
+        generic = "<" + ", ".join(item.lexeme for item in node.type_parameters) + ">" if node.type_parameters else ""
+        return f"EnumDeclaration {node.name}{generic}"
     if isinstance(node, EnumVariant):
         payload = ", ".join(item.name for item in node.payload_types)
         return f"EnumVariant {node.name}({payload})"
@@ -440,9 +460,13 @@ def _node_label(node: ASTNode) -> str:
     if isinstance(node, GroupingExpression):
         return "GroupingExpression"
     if isinstance(node, FunctionCallExpression):
-        return f"FunctionCall({node.callee})"
+        generic = "<" + ", ".join(item.name for item in node.type_arguments) + ">" if node.type_arguments else ""
+        return f"FunctionCall({node.callee}{generic})"
+    if isinstance(node, TypeApplicationExpression):
+        return f"TypeApplication({node.name}<{', '.join(item.name for item in node.type_arguments)}>)"
     if isinstance(node, EnumConstructorExpression):
-        return f"EnumConstructor {node.enum_name}.{node.variant_name}"
+        generic = "<" + ", ".join(item.name for item in node.type_arguments) + ">" if node.type_arguments else ""
+        return f"EnumConstructor {node.enum_name}{generic}.{node.variant_name}"
     if isinstance(node, MatchExpression):
         return f"MatchExpression[{len(node.arms)} arms]"
     if isinstance(node, MatchArm):
@@ -511,13 +535,15 @@ def _node_children(node: ASTNode) -> list[tuple[str | None, ASTNode]]:
     if isinstance(node, GroupingExpression):
         return [(None, node.expression)]
     if isinstance(node, FunctionCallExpression):
-        return [(f"arg[{i}]", arg) for i, arg in enumerate(node.arguments)]
+        return [(f"type_arg[{i}]", arg) for i, arg in enumerate(node.type_arguments)] + [(f"arg[{i}]", arg) for i, arg in enumerate(node.arguments)]
+    if isinstance(node, TypeApplicationExpression):
+        return [(f"type_arg[{i}]", arg) for i, arg in enumerate(node.type_arguments)]
     if isinstance(node, EnumConstructorExpression):
-        return [(f"payload[{i}]", arg) for i, arg in enumerate(node.arguments)]
+        return [(f"type_arg[{i}]", arg) for i, arg in enumerate(node.type_arguments)] + [(f"payload[{i}]", arg) for i, arg in enumerate(node.arguments)]
     if isinstance(node, MatchExpression):
         return [("subject", node.subject), *[(None, arm) for arm in node.arms]]
     if isinstance(node, MatchArm):
-        return [("body", node.body)]
+        return [(f"type_arg[{i}]", arg) for i, arg in enumerate(node.type_arguments)] + [("body", node.body)]
     return []
 
 

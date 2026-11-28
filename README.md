@@ -111,7 +111,7 @@ The bytecode format is version 2. The reader retains support for version 1 modul
 
 ## Testing
 
-The suite covers lexical and syntactic analysis, nominal types, imports, inferred declarations, typed-array construction/indexing/mutation, standard-library functions, sandboxed file I/O, bytecode versions 1–6, VM operations, source compilation, control flow, local/global variables, function calls, recursion, optimization parity, optimizer invariants, resource limits, and CLI workflows.
+The suite covers lexical and syntactic analysis, algebraic enum payloads and exhaustive pattern matching, nominal types, imports, inferred declarations, typed-array construction/indexing/mutation, standard-library functions, sandboxed file I/O, bytecode versions 1–6, VM operations, source compilation, control flow, local/global variables, function calls, recursion, optimization parity, optimizer invariants, resource limits, and CLI workflows.
 
 ```bash
 python -m pytest -v

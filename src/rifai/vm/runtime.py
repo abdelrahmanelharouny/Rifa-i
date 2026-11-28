@@ -34,6 +34,9 @@ class EnumValue:
     variant: str
     payloads: tuple[RuntimeValue, ...] = ()
 
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "payloads", tuple(self.payloads))
+
 
 RuntimeValue = int | float | bool | str | ArrayValue | StructValue | EnumValue
 

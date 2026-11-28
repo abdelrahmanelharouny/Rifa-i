@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from rifai.bytecode.instructions import Opcode, SourceLocation
 from rifai.bytecode.module import is_constant
+from rifai.ir.analysis import IRAnalyzer
 from rifai.ir.model import (
     IRBranch, IRFunction, IRHalt, IRJump, IRModule, IROperation, IRReturn,
     IRValue,
@@ -101,6 +102,29 @@ class IRVerifier:
         if function.blocks[0].block_id != 0:
             report("the entry block must have identifier 0.")
         definitions: set[int] = set()
+        dominator_info = IRAnalyzer()._analyze_function(function)
+        reachable_blocks = set(dominator_info.reachable_blocks)
+        dominators = {
+            block_id: set(items)
+            for block_id, items in dominator_info.dominators
+        }
+        value_types: dict[int, str | None] = {}
+        for candidate_block in function.blocks:
+            for parameter in candidate_block.parameters:
+                if isinstance(parameter, IRValue):
+                    value_types[parameter.value_id] = parameter.type_name
+            for candidate_operation in candidate_block.operations:
+                if isinstance(candidate_operation, IROperation):
+                    for output in candidate_operation.outputs:
+                        if isinstance(output, IRValue):
+                            value_types[output.value_id] = output.type_name
+
+        definition_locations: dict[int, tuple[int, int]] = {}
+        use_sites: list[tuple[int, int, int]] = []
+
+        def record_use(value_id: int, block_id: int, instruction_index: int) -> None:
+            use_sites.append((value_id, block_id, instruction_index))
+
         definition_types: dict[int, str | None] = {}
         local_types = {
             item.slot: item.type_name
@@ -116,14 +140,15 @@ class IRVerifier:
                 self._define(parameter, definitions, local_definitions, report)
                 if isinstance(parameter, IRValue):
                     definition_types[parameter.value_id] = parameter.type_name
-            for operation in block.operations:
+                    definition_locations[parameter.value_id] = (block.block_id, -1)
+            for operation_index, operation in enumerate(block.operations):
                 if not isinstance(operation, IROperation):
                     report(f"block {block.block_id} contains an invalid operation.")
                     continue
                 if operation.opcode in _TERMINATORS:
                     report(f"block {block.block_id} stores a terminator as an operation.")
                 for value_id in operation.inputs:
-                    self._use(value_id, local_definitions, report, block.block_id)
+                    record_use(value_id, block.block_id, operation_index)
                 if operation.opcode in (Opcode.LOAD_LOCAL, Opcode.STORE_LOCAL) and (
                     type(operation.operand) is not int
                     or operation.operand < 0
@@ -146,7 +171,7 @@ class IRVerifier:
                 self._verify_operation_types(
                     module,
                     operation,
-                    tuple(definition_types.get(value_id) for value_id in operation.inputs),
+                    tuple(value_types.get(value_id) for value_id in operation.inputs),
                     local_types,
                     functions,
                     report,
@@ -156,18 +181,19 @@ class IRVerifier:
                     self._define(output, definitions, local_definitions, report)
                     if isinstance(output, IRValue):
                         definition_types[output.value_id] = output.type_name
+                        definition_locations[output.value_id] = (block.block_id, operation_index)
                 if operation.location is not None and not isinstance(operation.location, SourceLocation):
                     report(f"operation in block {block.block_id} has invalid source metadata.")
 
             term = block.terminator
             if isinstance(term, IRJump):
                 for value_id in term.arguments:
-                    self._use(value_id, local_definitions, report, block.block_id)
+                    record_use(value_id, block.block_id, len(block.operations))
                 edges.append((term.target, term.arguments))
             elif isinstance(term, IRBranch):
-                self._use(term.condition, local_definitions, report, block.block_id)
+                record_use(term.condition, block.block_id, len(block.operations))
                 for value_id in (*term.false_arguments, *term.true_arguments):
-                    self._use(value_id, local_definitions, report, block.block_id)
+                    record_use(value_id, block.block_id, len(block.operations))
                 edges.append((term.false_target, term.false_arguments))
                 edges.append((term.true_target, term.true_arguments))
             elif isinstance(term, IRReturn):
@@ -178,8 +204,8 @@ class IRVerifier:
                 if function.return_type != "void" and term.value is None:
                     report(f"non-void function has an empty return in block {block.block_id}.")
                 if term.value is not None:
-                    self._use(term.value, local_definitions, report, block.block_id)
-                    actual_type = definition_types.get(term.value)
+                    record_use(term.value, block.block_id, len(block.operations))
+                    actual_type = value_types.get(term.value)
                     if actual_type is not None and actual_type != function.return_type:
                         report(
                             f"return value has type {actual_type}, expected {function.return_type}."
@@ -189,6 +215,29 @@ class IRVerifier:
                     report("HALT is only valid in the main function.")
             else:
                 report(f"block {block.block_id} has an unknown terminator.")
+
+        for value_id, use_block, use_index in use_sites:
+            definition = definition_locations.get(value_id)
+            if type(value_id) is not int or definition is None:
+                report(f"block {use_block} uses undefined virtual value %{value_id}.")
+                continue
+            definition_block, definition_index = definition
+            if definition_block == use_block:
+                if definition_index >= use_index:
+                    report(
+                        f"block {use_block} uses virtual value %{value_id} before its definition."
+                    )
+            elif use_block in reachable_blocks:
+                if definition_block not in dominators.get(use_block, set()):
+                    report(
+                        f"block {use_block} uses virtual value %{value_id} "
+                        f"from non-dominating block {definition_block}."
+                    )
+            else:
+                report(
+                    f"unreachable block {use_block} uses non-local virtual value "
+                    f"%{value_id} from block {definition_block}."
+                )
 
         for block in function.blocks:
             # Bytecode verification intentionally permits stack-inconsistent
@@ -228,7 +277,7 @@ class IRVerifier:
                     )
                 else:
                     for argument, parameter in zip(arguments, target_block.parameters):
-                        source_type = definition_types.get(argument)
+                        source_type = value_types.get(argument)
                         if (
                             source_type is not None
                             and parameter.type_name is not None

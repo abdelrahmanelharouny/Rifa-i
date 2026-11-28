@@ -78,13 +78,19 @@ print(calculate(1, 2, 3, 4));
     assert optimized.is_success and unoptimized.is_success
     assert VirtualMachine().execute(optimized.module).output == ("42",)
     assert VirtualMachine().execute(unoptimized.module).output == ("42",)
-    assert optimized.optimization.common_subexpressions_eliminated >= 1
-    optimized_function = optimized.module.functions[0].chunk
-    original_function = unoptimized.module.functions[0].chunk
-    assert optimized_function.local_count > original_function.local_count
-    assert len(optimized_function.instructions) < len(original_function.instructions)
-    debug_names = optimized.module.debug_info.as_mapping()["calculate"]
-    assert any(name.startswith("_cse_tmp_") for name, _ in debug_names.values())
+    assert optimized.ir_stats is not None
+    assert optimized.ir_stats.global_cse_eliminated >= 1
+    optimized_ir_function = next(
+        function for function in optimized.ir_module.functions
+        if function.name == "calculate"
+    )
+    original_ir_function = next(
+        function for function in unoptimized.ir_module.functions
+        if function.name == "calculate"
+    )
+    optimized_operations = sum(len(block.operations) for block in optimized_ir_function.blocks)
+    original_operations = sum(len(block.operations) for block in original_ir_function.blocks)
+    assert optimized_operations < original_operations
 
 
 def test_common_subexpression_cache_is_invalidated_by_local_assignment():
@@ -102,11 +108,25 @@ print(calculate(1, 2, 3));
     assert optimized.is_success and unoptimized.is_success
     assert VirtualMachine().execute(optimized.module).output == ("21",)
     assert VirtualMachine().execute(unoptimized.module).output == ("21",)
-    assert optimized.optimization.common_subexpressions_eliminated == 0
-    assert (
-        optimized.module.functions[0].chunk.local_count
-        == unoptimized.module.functions[0].chunk.local_count
+    assert optimized.ir_stats is not None
+    function = next(
+        item for item in optimized.ir_module.functions
+        if item.name == "calculate"
     )
+    # The cached pre-store load may be shared with a + 1, but the load after
+    # STORE_LOCAL a must be new; it cannot reuse the stale pre-store value.
+    loads_of_a = [
+        operation
+        for block in function.blocks
+        for operation in block.operations
+        if operation.opcode is Opcode.LOAD_LOCAL and operation.operand == 0
+    ]
+    assert len(loads_of_a) == 2
+    assert sum(
+        operation.opcode is Opcode.ADD
+        for block in function.blocks
+        for operation in block.operations
+    ) == 4
 
 
 def test_optimizer_remains_idempotent_after_dataflow_and_cse():
@@ -143,11 +163,11 @@ print(calculate(1, 2, 3, 4));
     assert optimized.is_success and unoptimized.is_success
     assert VirtualMachine().execute(optimized.module).output == ("42",)
     assert VirtualMachine().execute(unoptimized.module).output == ("42",)
-    assert optimized.optimization.common_subexpressions_eliminated == 0
-    assert (
-        optimized.module.functions[1].chunk.local_count
-        == unoptimized.module.functions[1].chunk.local_count
-    )
+    assert optimized.ir_stats is not None
+    assert optimized.ir_stats.global_cse_eliminated > 0
+    # IR CSE reuses virtual values across the call boundary; the backend
+    # therefore allocates private slots for those values.
+    assert optimized.module.functions[1].chunk.local_count > 0
 
 
 def test_dataflow_merge_keeps_bool_and_int_constants_distinct():
@@ -185,3 +205,24 @@ def test_dataflow_merge_keeps_bool_and_int_constants_distinct():
     assert VirtualMachine().execute(
         optimized.module, initial_globals={"condition": False}
     ).output == ("1",)
+
+def test_global_cse_does_not_reuse_local_load_across_branch_write():
+    source = """fn calculate(flag: bool) -> int {
+    let value: int = 1;
+    let before: int = value;
+    if (flag) {
+        value = 2;
+    }
+    let after: int = value;
+    return before + after;
+}
+print(calculate(true));
+print(calculate(false));
+"""
+    optimized = Compiler(optimize=True).compile(source)
+    unoptimized = Compiler(optimize=False).compile(source)
+
+    assert optimized.is_success and unoptimized.is_success
+    assert VirtualMachine().execute(optimized.module).output == ("3", "2")
+    assert VirtualMachine().execute(unoptimized.module).output == ("3", "2")
+

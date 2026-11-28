@@ -184,7 +184,12 @@ def _run_compile_command(
             f"{ir_stats.loop_back_edge_count} loop back-edge(s), "
             f"{ir_stats.constant_folds} IR constant fold(s), "
             f"{ir_stats.branches_simplified} branch simplification(s), "
-            f"{ir_stats.blocks_removed} unreachable block(s) removed."
+            f"{ir_stats.blocks_removed} unreachable block(s) removed, "
+            f"{ir_stats.dead_operations_removed} dead operation(s) removed, "
+            f"{ir_stats.copy_propagations} copy value(s) propagated, "
+            f"{ir_stats.global_cse_eliminated} global common expression(s) reused, "
+            f"{ir_stats.loop_invariants_hoisted} loop invariant operation(s) hoisted, "
+            f"{ir_stats.side_effecting_operations} side-effecting operation(s) analyzed."
         )
     return 0
 

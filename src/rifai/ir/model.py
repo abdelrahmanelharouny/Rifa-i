@@ -139,6 +139,7 @@ class IRModule:
     format_version: int = 4
     debug_info: BytecodeDebugInfo | None = None
     ir_version: int = 1
+    requires_materialized_values: bool = False
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "constants", tuple(self.constants))
@@ -242,6 +243,7 @@ class IRModule:
 
         return {
             "ir_version": self.ir_version,
+            "requires_materialized_values": self.requires_materialized_values,
             "format_version": self.format_version,
             "source_name": self.source_name,
             "constants": [

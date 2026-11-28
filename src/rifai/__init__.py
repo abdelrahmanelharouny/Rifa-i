@@ -28,6 +28,13 @@ from rifai.bytecode import (
 from rifai.compiler import CompilationResult, Compiler
 from rifai.ir import (
     ASTToIR,
+    IRCopyPropagationPass,
+    IRDeadCodeEliminationPass,
+    IRGlobalCommonSubexpressionEliminationPass,
+    IRLoopInvariantCodeMotionPass,
+    IROperationEffects,
+    IRSideEffectAnalysis,
+    IRSideEffectSummary,
     BytecodeToIR,
     IRAnalysis,
     IRAnalyzer,
@@ -73,7 +80,7 @@ from rifai.vm import (
     VMRuntimeError,
 )
 
-__version__ = "0.14.0"
+__version__ = "0.15.0"
 
 __all__ = [
     "BasicBlock",
@@ -84,6 +91,13 @@ __all__ = [
     "analyze_module_control_flow",
     "build_control_flow_graph",
     "ASTToIR",
+    "IRCopyPropagationPass",
+    "IRDeadCodeEliminationPass",
+    "IRGlobalCommonSubexpressionEliminationPass",
+    "IRLoopInvariantCodeMotionPass",
+    "IROperationEffects",
+    "IRSideEffectAnalysis",
+    "IRSideEffectSummary",
     "BytecodeToIR",
     "IRAnalysis",
     "IRAnalyzer",

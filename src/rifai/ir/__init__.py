@@ -1,6 +1,17 @@
 """Public API for the Rifa'i intermediate representation."""
 
 from rifai.ir.analysis import IRAnalysis, IRAnalyzer, IRFunctionAnalysis
+from rifai.ir.advanced_passes import (
+    IRCopyPropagationPass,
+    IRDeadCodeEliminationPass,
+    IRGlobalCommonSubexpressionEliminationPass,
+    IRLoopInvariantCodeMotionPass,
+)
+from rifai.ir.effects import (
+    IROperationEffects,
+    IRSideEffectAnalysis,
+    IRSideEffectSummary,
+)
 from rifai.ir.ast_to_ir import ASTToIR
 from rifai.ir.builder import BytecodeToIR
 from rifai.ir.lower import IRToBytecode
@@ -30,6 +41,13 @@ from rifai.ir.verifier import IRValidationResult, IRVerifier
 
 __all__ = [
     "ASTToIR",
+    "IRCopyPropagationPass",
+    "IRDeadCodeEliminationPass",
+    "IRGlobalCommonSubexpressionEliminationPass",
+    "IRLoopInvariantCodeMotionPass",
+    "IROperationEffects",
+    "IRSideEffectAnalysis",
+    "IRSideEffectSummary",
     "BytecodeToIR",
     "IRAnalysis",
     "IRAnalyzer",

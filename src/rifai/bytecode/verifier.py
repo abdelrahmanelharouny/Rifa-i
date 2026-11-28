@@ -40,9 +40,13 @@ MAX_CONSTANT_STRING_CHARS = 16 * 1024 * 1024
 MAX_DEBUG_SOURCE_CHARS = 8 * 1024 * 1024
 
 
+def _is_identifier(value: str) -> bool:
+    return bool(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value))
+
+
 def _is_nominal_type_name(value: str) -> bool:
     return (
-        bool(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value))
+        _is_identifier(value)
         and value != "void"
         and value not in BUILTIN_FUNCTIONS
         and value not in _ALLOWED_VALUE_TYPES
@@ -64,7 +68,7 @@ def _valid_struct_schema(value: str) -> bool:
         if ":" not in field:
             return False
         name, field_type = field.split(":", 1)
-        if not _is_nominal_type_name(name) or name in seen:
+        if not _is_identifier(name) or name in seen:
             return False
         if field_type not in _ALLOWED_VALUE_TYPES and not _is_nominal_type_name(field_type):
             return False
@@ -73,8 +77,18 @@ def _valid_struct_schema(value: str) -> bool:
 
 
 def _valid_enum_variant(value: str) -> bool:
-    parts = value.split(".")
-    return len(parts) == 2 and all(_is_nominal_type_name(item) for item in parts)
+    if len(value) > 4096 or value.count("|") != 2:
+        return False
+    type_name, variants_text, active = value.split("|")
+    if not _is_nominal_type_name(type_name) or not _is_identifier(active):
+        return False
+    variants = variants_text.split(",") if variants_text else []
+    return (
+        0 < len(variants) <= 256
+        and all(_is_identifier(item) for item in variants)
+        and len(set(variants)) == len(variants)
+        and active in variants
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -446,7 +460,7 @@ class BytecodeVerifier:
                     if opcode is Opcode.STRUCT_NEW and not _valid_struct_schema(operand):
                         report("STRUCT_NEW has an invalid or oversized field schema.", instruction)
                         continue
-                    if opcode in (Opcode.FIELD_GET, Opcode.FIELD_SET) and not _is_nominal_type_name(operand):
+                    if opcode in (Opcode.FIELD_GET, Opcode.FIELD_SET) and not _is_identifier(operand):
                         report(f"{opcode.value} has an invalid field name.", instruction)
                         continue
                     if opcode is Opcode.ENUM_NEW and not _valid_enum_variant(operand):

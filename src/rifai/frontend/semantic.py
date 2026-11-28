@@ -18,6 +18,12 @@ from rifai.frontend.ast_nodes import (
     GroupingExpression,
     IndexAssignmentStatement,
     IndexExpression,
+    MemberAssignmentStatement,
+    MemberExpression,
+    ImportDeclaration,
+    StructDeclaration,
+    StructField,
+    EnumDeclaration,
     IfStatement,
     LiteralExpression,
     PrintStatement,
@@ -34,6 +40,9 @@ from rifai.frontend.symbol_table import FunctionSymbol, SymbolTable, VariableSym
 from rifai.frontend.tokens import TokenType
 from rifai.frontend.types import (
     RifaiType,
+    StaticType,
+    UserDefinedType,
+    type_name,
     array_element_type,
     array_type_for,
     is_array_type,
@@ -52,7 +61,11 @@ _RELATIONAL_OPS: Final[frozenset[TokenType]] = frozenset(
     }
 )
 
-_BUILTIN_FUNCTIONS: Final[frozenset[str]] = frozenset({"len", "push", "pop"})
+_BUILTIN_FUNCTIONS: Final[frozenset[str]] = frozenset({
+    "len", "push", "pop", "abs", "min", "max", "sqrt", "round",
+    "to_int", "to_float", "to_string", "contains", "starts_with",
+    "ends_with", "substring", "read_text", "write_text", "file_exists",
+})
 
 _EQUALITY_OPS: Final[frozenset[TokenType]] = frozenset(
     {
@@ -67,17 +80,22 @@ class SemanticResult:
     """Validated semantic model produced by the Rifa'i SemanticAnalyzer."""
 
     diagnostics: tuple[Diagnostic, ...]
-    expression_types: dict[int, RifaiType]
+    expression_types: dict[int, StaticType]
     variable_bindings: dict[int, VariableSymbol]
     function_bindings: dict[int, FunctionSymbol]
     global_symbols: dict[str, VariableSymbol | FunctionSymbol]
+    struct_declarations: dict[str, StructDeclaration]
+    enum_declarations: dict[str, EnumDeclaration]
+    constructor_bindings: dict[int, StructDeclaration]
+    member_bindings: dict[int, StructField]
+    enum_variant_bindings: dict[int, tuple[str, str]]
 
     @property
     def is_valid(self) -> bool:
         """Return True when semantic analysis completed with zero diagnostics."""
         return len(self.diagnostics) == 0
 
-    def type_of(self, expression: Expression) -> RifaiType | None:
+    def type_of(self, expression: Expression) -> StaticType | None:
         """Return the inferred RifaiType for an AST expression node."""
         return self.expression_types.get(id(expression))
 
@@ -105,6 +123,12 @@ class SemanticAnalyzer:
         self._variable_bindings: dict[int, VariableSymbol] = {}
         self._function_bindings: dict[int, FunctionSymbol] = {}
         self._current_function: FunctionSymbol | None = None
+        self._struct_declarations: dict[str, StructDeclaration] = {}
+        self._enum_declarations: dict[str, EnumDeclaration] = {}
+        self._nominal_types: dict[str, UserDefinedType] = {}
+        self._constructor_bindings: dict[int, StructDeclaration] = {}
+        self._member_bindings: dict[int, StructField] = {}
+        self._enum_variant_bindings: dict[int, tuple[str, str]] = {}
 
     def analyze(self, program: Program) -> SemanticResult:
         """Analyze a parsed Rifa'i Program AST and return a SemanticResult."""
@@ -114,12 +138,21 @@ class SemanticAnalyzer:
         self._variable_bindings = {}
         self._function_bindings = {}
         self._current_function = None
+        self._struct_declarations = {}
+        self._enum_declarations = {}
+        self._nominal_types = {}
+        self._constructor_bindings = {}
+        self._member_bindings = {}
+        self._enum_variant_bindings = {}
 
+        self._collect_type_declarations(program)
         self._collect_function_signatures(program)
 
         for decl in program.declarations:
             if isinstance(decl, FunctionDeclaration):
                 self._analyze_function_declaration(decl)
+            elif isinstance(decl, (StructDeclaration, EnumDeclaration, ImportDeclaration)):
+                continue
             else:
                 self._analyze_statement(decl)
 
@@ -129,6 +162,11 @@ class SemanticAnalyzer:
             variable_bindings=dict(self._variable_bindings),
             function_bindings=dict(self._function_bindings),
             global_symbols=self._symbol_table.global_scope.symbols,
+            struct_declarations=dict(self._struct_declarations),
+            enum_declarations=dict(self._enum_declarations),
+            constructor_bindings=dict(self._constructor_bindings),
+            member_bindings=dict(self._member_bindings),
+            enum_variant_bindings=dict(self._enum_variant_bindings),
         )
 
     def _error(self, span: SourceSpan, message: str) -> None:
@@ -142,6 +180,43 @@ class SemanticAnalyzer:
                 end_offset=span.end_offset,
             )
         )
+
+    def _collect_type_declarations(self, program: Program) -> None:
+        """Register all nominal types before resolving any function signatures."""
+        for declaration in program.declarations:
+            if isinstance(declaration, StructDeclaration):
+                name = declaration.name
+                if name in self._nominal_types or type_from_name(name) is not None:
+                    self._error(SourceSpan.from_token(declaration.name_token),
+                                f"Duplicate or reserved type name '{name}'.")
+                    continue
+                seen: set[str] = set()
+                for item in declaration.fields:
+                    if item.name in seen:
+                        self._error(SourceSpan.from_token(item.name_token),
+                                    f"Duplicate field '{item.name}' in struct '{name}'.")
+                    seen.add(item.name)
+                self._struct_declarations[name] = declaration
+                self._nominal_types[name] = UserDefinedType(name, "struct")
+            elif isinstance(declaration, EnumDeclaration):
+                name = declaration.name
+                if name in self._nominal_types or type_from_name(name) is not None:
+                    self._error(SourceSpan.from_token(declaration.name_token),
+                                f"Duplicate or reserved type name '{name}'.")
+                    continue
+                seen_variants: set[str] = set()
+                for variant in declaration.variants:
+                    if variant.lexeme in seen_variants:
+                        self._error(SourceSpan.from_token(variant),
+                                    f"Duplicate variant '{variant.lexeme}' in enum '{name}'.")
+                    seen_variants.add(variant.lexeme)
+                if not declaration.variants:
+                    self._error(declaration.span, f"Enum '{name}' must declare at least one variant.")
+                self._enum_declarations[name] = declaration
+                self._nominal_types[name] = UserDefinedType(name, "enum")
+
+    def _resolve_type(self, name: str) -> StaticType | None:
+        return type_from_name(name) or self._nominal_types.get(name)
 
     # --- Pass 1: Function signature collection -------------------------------
 

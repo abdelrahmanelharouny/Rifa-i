@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass, replace
 from hashlib import sha256
 
@@ -339,7 +340,10 @@ class GenericSpecializer:
         self._specialized_returns[name] = return_type.name
 
         local_env = {p.name: p.type_annotation.name for p in params}
-        body = self._rewrite_block(template.body, local_env, substitutions)
+        # Each concrete instantiation must own distinct AST node identities.
+        # SemanticResult stores bindings by id(node), so shared source nodes
+        # between specializations would allow one instance to overwrite another.
+        body = self._rewrite_block(deepcopy(template.body), local_env, substitutions)
         specialized = replace(placeholder, body=body)
         self._specializations[key] = specialized
         self._specialization_list[self._specialization_positions[key]] = specialized

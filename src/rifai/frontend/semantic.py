@@ -192,7 +192,7 @@ class SemanticAnalyzer:
         for declaration in program.declarations:
             if isinstance(declaration, StructDeclaration):
                 name = declaration.name
-                if name in self._nominal_types or type_from_name(name) is not None:
+                if name in self._nominal_types or type_from_name(name) is not None or name in _BUILTIN_FUNCTIONS:
                     self._error(SourceSpan.from_token(declaration.name_token),
                                 f"Duplicate or reserved type name '{name}'.")
                     continue
@@ -279,6 +279,11 @@ class SemanticAnalyzer:
                         scope_depth=1,
                     )
                 )
+
+            if decl.name in self._nominal_types:
+                self._error(SourceSpan.from_token(decl.name_token),
+                            f"Function name '{decl.name}' conflicts with a declared type.")
+                continue
 
             if decl.name in _BUILTIN_FUNCTIONS:
                 self._error(
@@ -377,6 +382,12 @@ class SemanticAnalyzer:
                 f"Variable '{stmt.name}' cannot have type 'void'.",
             )
             declared_type = RifaiType.ERROR
+
+        if stmt.name in self._nominal_types:
+            self._error(
+                SourceSpan.from_token(stmt.name_token),
+                f"Variable name '{stmt.name}' conflicts with a declared type.",
+            )
 
         if stmt.name in _BUILTIN_FUNCTIONS:
             self._error(

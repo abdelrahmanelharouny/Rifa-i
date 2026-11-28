@@ -462,10 +462,16 @@ class CodeGenerator:
                 "string[]": Opcode.ARRAY_NEW_STRING,
             }
             opcode = array_opcodes.get(array_type.value if array_type is not None else "")
-            if opcode is None:
-                self._error(expression.span, "Could not determine array element type during code generation.")
-            else:
+            if opcode is not None:
                 self._emit(opcode, len(expression.elements), location=expression.span)
+            elif array_type is not None and array_type.value.endswith("[]"):
+                self._emit(
+                    Opcode.ARRAY_NEW_TYPED,
+                    f"{array_type.value[:-2]}|{len(expression.elements)}",
+                    location=expression.span,
+                )
+            else:
+                self._error(expression.span, "Could not determine array element type during code generation.")
         elif isinstance(expression, IndexExpression):
             self._compile_expression(expression.array, semantic)
             self._compile_expression(expression.index, semantic)

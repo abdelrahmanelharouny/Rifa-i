@@ -9,6 +9,9 @@ from rifai.frontend.ast_nodes import (
     ExpressionStatement,
     FunctionCallExpression,
     FunctionDeclaration,
+    StructDeclaration,
+    EnumDeclaration,
+    TypeApplicationExpression,
     GroupingExpression,
     IfStatement,
     LiteralExpression,
@@ -38,7 +41,7 @@ from rifai.frontend.symbol_table import (
     VariableSymbol,
 )
 from rifai.frontend.tokens import KEYWORDS, Token, TokenType
-from rifai.frontend.types import RifaiType
+from rifai.frontend.types import ArrayType, RifaiType, StaticType, UserDefinedType
 
 __all__ = [
     "ASTNode",
@@ -49,6 +52,12 @@ __all__ = [
     "ExpressionStatement",
     "FunctionCallExpression",
     "FunctionDeclaration",
+    "StructDeclaration",
+    "EnumDeclaration",
+    "TypeApplicationExpression",
+    "ArrayType",
+    "StaticType",
+    "UserDefinedType",
     "FunctionSymbol",
     "GenericSpecializer",
     "GenericSpecializationResult",

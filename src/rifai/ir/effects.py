@@ -99,6 +99,7 @@ class IRSideEffectAnalysis:
     # have raised the same fault before any later common use could be reached.
     _COMMONABLE = frozenset({
         Opcode.CONSTANT,
+        Opcode.LOAD_LOCAL,
         Opcode.NEGATE,
         Opcode.NOT,
         Opcode.ADD,

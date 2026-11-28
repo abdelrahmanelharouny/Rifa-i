@@ -47,6 +47,7 @@ from rifai.frontend.ast_nodes import (
 from rifai.frontend.symbol_table import FunctionSymbol, SymbolTable, VariableSymbol
 from rifai.frontend.tokens import TokenType
 from rifai.frontend.types import (
+    ArrayType,
     RifaiType,
     StaticType,
     UserDefinedType,
@@ -249,7 +250,14 @@ class SemanticAnalyzer:
                 self._nominal_types[name] = UserDefinedType(name, "enum")
 
     def _resolve_type(self, name: str) -> StaticType | None:
-        return type_from_name(name) or self._nominal_types.get(name)
+        resolved = type_from_name(name)
+        if resolved is not None:
+            return resolved
+        if name.endswith("[]"):
+            element = self._resolve_type(name[:-2])
+            if element is not None and element not in (RifaiType.VOID, RifaiType.ERROR):
+                return ArrayType(element)
+        return self._nominal_types.get(name)
 
     # --- Pass 1: Function signature collection -------------------------------
 
@@ -858,7 +866,7 @@ class SemanticAnalyzer:
         self,
         expr: ArrayLiteralExpression,
         expected_type: StaticType | None,
-    ) -> RifaiType:
+    ) -> StaticType:
         if not expr.elements:
             if expected_type is not None and is_array_type(expected_type):
                 return expected_type
@@ -870,11 +878,15 @@ class SemanticAnalyzer:
 
         element_types = [self._analyze_expression(item) for item in expr.elements]
         first_type = element_types[0]
-        inferred_array = array_type_for(first_type)
+        inferred_array = (
+            array_type_for(first_type)
+            if not is_error_type(first_type) and first_type is not RifaiType.VOID
+            else None
+        )
         if inferred_array is None:
             self._error(
                 expr.elements[0].span,
-                "Arrays can contain only primitive int, float, bool, or string values.",
+                f"Array elements must be values, got '{first_type.value}'.",
             )
             return RifaiType.ERROR
 

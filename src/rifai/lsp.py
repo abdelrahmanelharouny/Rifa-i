@@ -83,9 +83,16 @@ def _walk(node: ASTNode):
                     yield from _walk(item)
 
 
+def _display_function_name(name: str) -> str:
+    prefix = "__rifai_generic_"
+    if name.startswith(prefix):
+        return name[len(prefix):].rsplit("_", 1)[0]
+    return name
+
+
 def _signature(symbol: FunctionSymbol) -> str:
     args = ", ".join(f"{p.name}: {p.rifai_type.value}" for p in symbol.params)
-    return f"{symbol.name}({args}) -> {symbol.return_type.value}"
+    return f"{_display_function_name(symbol.name)}({args}) -> {symbol.return_type.value}"
 
 
 def _line_starts(source: str) -> list[int]:
@@ -313,8 +320,9 @@ class LanguageServer:
                             symbols.setdefault(symbol.name, symbol)
         for name, symbol in sorted(symbols.items()):
             if isinstance(symbol, FunctionSymbol):
-                items.append({"label": _signature(symbol), "filterText": name, "kind": 3,
-                              "detail": "function", "insertText": name, "sortText": "0" + name})
+                display_name = _display_function_name(name)
+                items.append({"label": _signature(symbol), "filterText": display_name, "kind": 3,
+                              "detail": "function", "insertText": display_name, "sortText": "0" + display_name})
             else:
                 items.append({"label": name, "kind": 6, "detail": _symbol_detail(symbol),
                               "insertText": name, "sortText": "0" + name})

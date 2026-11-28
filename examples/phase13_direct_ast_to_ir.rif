@@ -1,0 +1,21 @@
+fn add_bonus(values: int[], bonus: int) -> int {
+    if (bonus > 0) {
+        return values[0] + bonus;
+    } else {
+        return values[0];
+    }
+}
+
+let scores: int[] = [10, 20];
+scores[1] = 25;
+push(scores, 30);
+
+let index: int = 0;
+let total: int = 0;
+while (index < len(scores)) {
+    total = total + scores[index];
+    index = index + 1;
+}
+
+print(add_bonus(scores, 2));
+print(total);

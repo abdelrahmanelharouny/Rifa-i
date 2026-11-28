@@ -117,6 +117,9 @@ def _operation_type(
         return None
     if opcode in _ARRAY_TYPES:
         return _ARRAY_TYPES[opcode]
+    if opcode is Opcode.ARRAY_NEW_TYPED and isinstance(instruction.operand, str):
+        element_type = instruction.operand.rsplit("|", 1)[0]
+        return element_type + "[]"
     if opcode is Opcode.ARRAY_GET:
         return types[0][:-2] if types[0] and types[0].endswith("[]") else None
     if opcode is Opcode.LENGTH:
@@ -139,6 +142,8 @@ def _stack_effect(
         return BUILTIN_ARITIES[instruction.operand], 1
     if opcode in _ARRAY_TYPES:
         return instruction.operand, 1
+    if opcode is Opcode.ARRAY_NEW_TYPED:
+        return int(instruction.operand.rsplit("|", 1)[1]), 1
     if opcode is Opcode.ENUM_NEW_PAYLOAD:
         payload_text = instruction.operand.split("|", 2)[2]
         return (len(payload_text.split(",")) if payload_text else 0), 1

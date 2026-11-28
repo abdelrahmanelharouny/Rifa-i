@@ -11,6 +11,10 @@ enum Option<T: Display> {
     None,
 }
 
+fn identity<T>(value: T) -> T {
+    return value;
+}
+
 fn describe<T: Display>(option: Option<T>) -> string {
     return match (option) {
         Option.Some(value) => to_string(value),

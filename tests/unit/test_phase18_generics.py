@@ -79,7 +79,7 @@ def test_inspection_exposes_generic_templates_and_concrete_specializations():
     }
     assert snapshot["stages"]["generics"]["specialization_count"] >= 7
     assert snapshot["stages"]["semantic"]["success"]
-    assert snapshot["stages"]["bytecode"]["format_version"] == 6
+    assert snapshot["stages"]["bytecode"]["format_version"] == 7
 
 
 def test_generic_function_ast_and_specializer_remove_templates():

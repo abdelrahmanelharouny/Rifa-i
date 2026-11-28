@@ -203,7 +203,7 @@ def test_v6_bytecode_roundtrip_and_ir_lifting_preserve_match_behavior():
     lifted = BytecodeToIR().build(restored)
     assert IRVerifier().verify(lifted).is_valid
     lowered = IRToBytecode().lower(lifted)
-    assert lowered.format_version == 6
+    assert lowered.format_version == 7
     assert VirtualMachine().execute(lowered).output == VirtualMachine().execute(restored).output
 
 
